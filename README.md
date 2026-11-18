@@ -38,42 +38,22 @@
 
 ## 快速开始
 
-### 安装脚本版
+确保 VPS 满足上方环境要求，并以 root 用户登录。安装和更新统一使用下方的安装命令；脚本会提供交互菜单，可配置 Nginx 前置的 VLESS WebSocket TLS、VLESS REALITY + Vision，或按菜单选择组合部署。
 
-以 root 登录：
+## 安装/更新方式
 
-```bash
-apt-get update
-apt-get install -y wget ca-certificates
-wget -O install.sh https://raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh
-chmod +x install.sh
-bash install.sh
-```
+本项目通过同一个安装脚本管理两种协议：
 
-菜单选择仅 WS、仅 REALITY 或两者都安装。安装器首版尚不是完整的原地升级迁移工具；更新前备份配置，不要把重复运行安装菜单视为无风险升级。
+- VLESS + TCP + TLS + Nginx 前置 + WebSocket：Nginx 对外监听 443，Xray 在本机端口提供 WebSocket 服务。
+- VLESS + TCP + REALITY + Vision：Xray 直接监听，默认端口为 TCP 8443。
 
-## 安装/更新方式（Nginx 前置）
-
-### 支持的配置方式
-
-- VLESS + TCP + TLS + Nginx + WebSocket。
-
-Nginx 监听 443，将 WS 路径反向代理至 Xray 的本机随机高端口。证书由 acme.sh 管理。
+以 root 用户执行以下命令：
 
 ```bash
 wget -N -O install.sh "https://raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh" && chmod +x install.sh && bash install.sh
 ```
 
-更新前备份 `/usr/local/etc/xray/config.json`、`/etc/nginx` 和 `/ssl`。
-
-## 安装/更新方式（Xray 前置）
-
-上游原项目的 Xray 前置 TLS/回落模式与 Nginx 前置 WS 并非同一种部署方式。当前衍生项目首版实际提供：
-
-- Nginx 前置 VLESS + WebSocket + TLS；
-- Xray 直连 VLESS + REALITY + Vision。
-
-**当前尚未实现独立的“Xray 前置 + TLS/XTLS Vision + Nginx 回落”安装模式。** REALITY 不是传统 Xray 前置 TLS 模式的别名，因此本项目暂不提供该模式的安装命令，避免误导。后续实现并通过测试后再补充。
+更新前请备份 `/usr/local/etc/xray/config.json`、`/etc/nginx` 和 `/ssl`。当前首版尚不是完整的原地升级迁移工具；请先阅读脚本菜单和提示，不要将重复运行安装脚本视为无风险升级。
 
 ## REALITY 参数说明
 
@@ -163,10 +143,6 @@ nginx -t                   # 检查 Nginx 配置
 | `/usr/local/share/xray/geosite.dat` | 可选 GeoSite 数据文件 |
 
 说明：geoip.dat 和 geosite.dat 是数据文件，不是目录。首版脚本尚未自动下载/更新它们；若手动放置，请确保 Xray 配置引用路径一致。
-
-## 版本与 Releases
-
-采用语义化版本管理：MAJOR 为不兼容变更，MINOR 为新增功能，PATCH 为 Bug 修复。每个正式版本的 GitHub Release 应说明发布日期、新功能、修复原因、升级注意事项和测试状态。变更记录见 [CHANGELOG.md](CHANGELOG.md)。CHANGELOG 和普通提交记录不等同于 GitHub 正式 Release。
 
 ## 鸣谢
 

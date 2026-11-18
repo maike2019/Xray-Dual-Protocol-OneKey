@@ -89,9 +89,8 @@ server {
  location / { return 301 https://\$host\$request_uri; }
 }
 server {
- listen 443 ssl;
+ listen 443 ssl http2;
  listen [::]:443 ssl;
- http2 on;
  server_name $d;
  ssl_certificate $CERT;
  ssl_certificate_key $KEY;
@@ -133,6 +132,11 @@ install_ws(){
  read -rp "WS TLS 域名（A/AAAA 应指向本机）: " d
  [[ "$d" =~ ^[A-Za-z0-9.-]+$ ]] || die "域名格式不正确"
  DOMAIN=$d
+ # Ensure a valid base Xray config exists before the ACME deploy hook runs.
+ if [[ ! -s "$CONF" ]]; then
+   printf '%s\n' '{"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"blocked"}],"routing":{"rules":[]}}' >"$CONF"
+   chmod 600 "$CONF"
+ fi
  port_free 80 || die "80 端口占用，未做任何 kill"
  port_free 443 || die "443 端口占用，未做任何 kill"
  local p path id base

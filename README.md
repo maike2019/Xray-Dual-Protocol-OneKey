@@ -1,65 +1,181 @@
 # Xray-Dual-Protocol-OneKey
 
-基于 [wulabing/Xray_onekey](https://github.com/wulabing/Xray_onekey) 衍生的双协议安装管理项目，保留原项目 MIT 版权声明（见 [LICENSE](LICENSE)）。
+一个基于 [wulabing/Xray_onekey](https://github.com/wulabing/Xray_onekey) 衍生的双协议安装与管理项目：保留 Nginx 前置 VLESS WebSocket TLS，并增加独立 VLESS REALITY + Vision 入站。
 
-> **状态：首版开发中。** 文件已提交，但尚未在真实 VPS 完成端到端安装、续期及客户端互通测试。请先在快照/测试机验证。
+> **状态：早期开发版。** 首版脚本和文档已提交，但尚未完成真实 VPS 的完整安装、自动续期、升级回滚及客户端互通验收。请先在测试机验证，不要直接覆盖生产节点。
 
-## 功能目标
+## 功能
 
-- VLESS + TCP + TLS + Nginx + WebSocket：Nginx 443，Xray 回源仅监听 127.0.0.1。
-- VLESS + TCP + REALITY + Vision：独立 TCP 端口，默认 8443。
-- 两种入站共存；REALITY 支持修改监听端口、dest 域名/端口、serverNames，重新生成密钥和 Short ID。
-- 端口占用只报告，不会自动 kill 进程；修改 Xray 配置先备份、测试，失败尝试回滚。
-- ACME HTTP-01 challenge location 常驻 Nginx 80 端口；统一续期 hook 处理权限、配置测试和服务重载。
+- VLESS + TCP + TLS + Nginx + WebSocket：Nginx 对外监听 443，Xray 回源监听本机端口。
+- VLESS + TCP + REALITY + Vision：Xray 直接监听，默认 TCP 8443。
+- 两种入站可共存，具备独立 tag 和参数。
+- REALITY 基础管理：修改监听端口、dest、SNI，重新生成密钥和 Short ID。
+- 安装后输出 VLESS 分享链接。
+- ACME HTTP-01 固定 webroot、统一续期 hook、证书权限处理。
+- 端口占用只报告，不自动 kill 进程；修改配置前备份并执行 Xray 测试。
 
-## 安装
+## 环境要求
 
-建议全新 Debian 12/13 或 Ubuntu 22.04/24.04，root 执行。WS TLS 需要域名正确解析至 VPS，并允许公网 TCP 80/443；REALITY 默认 TCP 8443 需在云安全组及系统防火墙放行。
+### 支持的系统
+
+当前首版脚本仅明确支持 Debian/Ubuntu（使用 apt 和 systemd）：
+
+| 发行版 | 版本 | 状态 |
+| --- | --- | --- |
+| Debian | 12 / 13 | 目标测试环境 |
+| Ubuntu | 22.04 / 24.04 | 目标测试环境 |
+| 其他 Debian/Ubuntu | 未验证 | 可能有软件包或服务差异 |
+| Rocky / AlmaLinux / CentOS | 暂不支持 | 当前脚本不支持 yum/dnf |
+
+### 准备工作
+
+- 一台可使用 root 登录的 Debian/Ubuntu VPS，建议全新系统。
+- 安装前备份已有 Xray、Nginx、证书和防火墙配置。
+- WS TLS 需要域名 A/AAAA 记录指向 VPS，公网 TCP 80、443 可访问。
+- REALITY 需要选择有效的 dest 域名及端口；默认监听 TCP 8443。
+- 在云厂商安全组和系统防火墙中放行实际使用的 TCP 端口。
+- 保证系统时间和 DNS 正常，并具备基本 Linux 命令行知识。
+
+## 快速开始
+
+### 安装脚本版
+
+以 root 登录：
 
 ```bash
+apt-get update
+apt-get install -y wget ca-certificates
 wget -O install.sh https://raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh
 chmod +x install.sh
 bash install.sh
 ```
 
-安装菜单可选仅 WS、仅 REALITY 或两者。注意：脚本不会自动关闭防火墙，也不会清理端口占用进程。
+菜单选择仅 WS、仅 REALITY 或两者都安装。安装器首版尚不是完整的原地升级迁移工具；更新前备份配置，不要把重复运行安装菜单视为无风险升级。
 
-## 证书续期 Bug：原问题与修复方法
+## 安装/更新方式（Nginx 前置）
 
-### 原 nginx_forward 分支的问题
+### 支持的配置方式
 
-1. **HTTP-01 路径没有常驻放行。** 原 80 端口常态配置把请求直接 301 到 HTTPS，ACME webroot 验证依赖 CA 跟随重定向，行为不稳健。
-2. **重复传入 `--reloadcmd`。** 原 `--installcert` 同一命令分别传入重启 Xray、Nginx 的两个 reloadcmd，不是可靠的多动作编排方式，存在后一个覆盖前一个的风险。
-3. **证书权限写死。** 原脚本使用 `chown -R nobody.$cert_group /ssl/*`，没有可靠读取 systemd 中 Xray 的实际运行用户，且点号属主语法和目录自身权限处理不够稳妥。
-4. **手动 cron 不等于自动续期链路正确。** 手动运行 `acme.sh --cron` 后重启服务，不能证明 cron 定时任务、证书部署路径和续期 hook 均正确。
-5. **临时改写 Nginx 配置易受端口/行号影响。** challenge 放行不应依赖临时按行号 sed 修改配置。
+- VLESS + TCP + TLS + Nginx + WebSocket。
 
-### 本项目修复逻辑
-
-- 80 端口始终配置 `location ^~ /.well-known/acme-challenge/`，固定使用 webroot；其他路径再重定向/拒绝。
-- 证书申请与续期使用相同 webroot，和 TLS 对外监听端口解耦。
-- `--install-cert` 只注册一个统一 reload hook，避免重复传递 `--reloadcmd`。
-- hook 读取 `systemctl show xray -p User`，确定 Xray 运行用户；设置证书属主和权限后，依次执行 `nginx -t`、`xray run -test`，通过后 reload Nginx 并重启 Xray。
-- 安装时调用 `acme.sh --install-cronjob`，菜单提供 cron/timer、证书到期时间和 acme.sh 证书列表检查。
-- 不宣称“手动续期成功”等于自动续期已验证。自动续期仍依赖 cron 服务、DNS、TCP 80 入站和 CA 可达性。
-
-建议部署后检查：
+Nginx 监听 443，将 WS 路径反向代理至 Xray 的本机随机高端口。证书由 acme.sh 管理。
 
 ```bash
-/root/.acme.sh/acme.sh --cron --home /root/.acme.sh --debug
+wget -N -O install.sh "https://raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh" && chmod +x install.sh && bash install.sh
+```
+
+更新前备份 `/usr/local/etc/xray/config.json`、`/etc/nginx` 和 `/ssl`。
+
+## 安装/更新方式（Xray 前置）
+
+上游原项目的 Xray 前置 TLS/回落模式与 Nginx 前置 WS 并非同一种部署方式。当前衍生项目首版实际提供：
+
+- Nginx 前置 VLESS + WebSocket + TLS；
+- Xray 直连 VLESS + REALITY + Vision。
+
+**当前尚未实现独立的“Xray 前置 + TLS/XTLS Vision + Nginx 回落”安装模式。** REALITY 不是传统 Xray 前置 TLS 模式的别名，因此本项目暂不提供该模式的安装命令，避免误导。后续实现并通过测试后再补充。
+
+## REALITY 参数说明
+
+- 监听端口默认 `8443`。
+- `dest` 是服务端握手目标，格式为域名和端口，例如 `www.example.com:443`。
+- `serverNames` 是允许的 SNI 名称；首版交互支持单项输入。
+- Private Key 只保存在服务端；Public Key 和 Short ID 供客户端使用。
+- 客户端 flow 为 `xtls-rprx-vision`。
+
+重新生成密钥或 Short ID 后，旧客户端链接会失效，必须同步更新客户端。
+
+## 导入链接规范
+
+参考 [XTLS/Xray-core 分享链接讨论](https://github.com/XTLS/Xray-core/issues/91) 和 [Xray-core](https://github.com/XTLS/Xray-core)。
+
+WS TLS 链接包含 UUID、地址、端口、`encryption=none`、`security=tls`、`type=ws`、`host` 和 URL 编码的 `path`。REALITY 链接包含 UUID、地址、端口、`flow=xtls-rprx-vision`、`security=reality`、`sni`、`fp`、`pbk`、`sid` 和 `type=tcp`。
+
+导入失败时核对客户端版本、UUID、端口、SNI、公钥和 Short ID。切勿把 REALITY Private Key 分享给客户端。
+
+## 注意事项
+
+- 不理解参数时先使用默认值；REALITY 的 dest 与 SNI 不是同一项。
+- 端口占用时脚本只报告，不会结束进程；请识别占用者，避免误停 SSH/Nginx。
+- 脚本不会自动关闭 UFW/nftables，也不会替你配置云安全组。
+- WS TLS 需要 TCP 80/443；REALITY 需要开放所选监听端口。
+- 自动续期依赖 acme.sh 定时任务、DNS、80 端口和 CA 可达性；安装成功不等于自动续期已实测。
+- WebSocket transport 已被 Xray 标记为弃用，未来可能移除；Nginx 前置 TLS 也可能被针对性阻断。
+
+## 修复说明
+
+### 原 nginx_forward 分支发现的问题
+
+1. **HTTP-01 challenge location 未常驻。** 常态 Nginx 80 端口配置把请求重定向到 HTTPS，未稳定保留独立的 `/.well-known/acme-challenge/` webroot 路径，续期依赖 CA 对重定向的处理。
+2. **重复传入 `--reloadcmd`。** 原 `acme.sh --install-cert` 命令重复传递 reloadcmd，分别重启 Xray 和 Nginx；这不是可靠的组合 hook 编排方式。
+3. **证书权限处理不可靠。** 原逻辑使用硬编码 nobody 和递归 chown，没有可靠读取 Xray systemd 实际运行用户，也没有妥善处理 `/ssl` 目录自身权限。
+4. **手动 cron 不等于自动续期正常。** 手动执行 `acme.sh --cron` 不能证明系统定时任务存在、启用且会正常触发。
+5. **临时改写 Nginx 配置脆弱。** 依赖按行号 sed 或临时改写配置放行 challenge，容易受配置变化影响。
+
+### 本项目修复方法
+
+- Nginx 80 端口常驻 `location ^~ /.well-known/acme-challenge/`，统一使用固定 webroot。
+- 签发和续期使用同一个 webroot，验证路径不依赖 TLS 对外端口。
+- `--install-cert` 仅注册一个组合 reload hook。
+- hook 读取 `systemctl show xray -p User`，设置证书属主/权限后执行 `nginx -t` 和 `xray run -test`，通过后重载 Nginx、重启 Xray。
+- 安装时调用 `acme.sh --install-cronjob`，并提供证书列表、到期时间和 cron/timer 检查。
+- 区分手动续期测试与自动续期验收；后者仍需在 VPS 上验证 DNS、TCP 80、cron 和 hook 日志。
+
+部署后可检查：
+
+```bash
+/root/.acme.sh/acme.sh --list
+crontab -l
 openssl x509 -in /ssl/xray.crt -noout -dates
 nginx -t
 xray run -test -config /usr/local/etc/xray/config.json
 ```
 
-## 已知限制
+上述为代码中的修复设计，不代表已完成真实 VPS 自动续期验收。
 
-- 首版只支持 Debian/Ubuntu；不自动关闭 UFW/nftables/firewalld。
-- 首版 REALITY SNI 交互设置为单项；配置本身使用数组，可后续扩展多 SNI 管理。
-- 首版菜单尚未实现 WS 的所有交互修改项；可查看当前 Xray 配置文件。
-- 尚未进行 VPS 实机测试。不同 Xray-core 版本的 `xray x25519` 输出格式可能不同；脚本遇到无法解析会停止。
-- Xray WebSocket transport 已被标记 deprecated，未来可能移除；Nginx 前置 TLS 结构也可能遭遇针对性阻断。
+## 启动方式
 
-## 许可
+```bash
+systemctl start xray       # 启动 Xray
+systemctl stop xray        # 停止 Xray
+systemctl restart xray     # 重启 Xray
+systemctl status xray      # 查看状态
+journalctl -u xray -e      # 查看日志
 
-MIT License。保留原作者声明：Copyright (c) 2022 wulabing。本衍生项目不代表原作者背书。
+systemctl start nginx      # 启动 Nginx
+systemctl stop nginx       # 停止 Nginx
+nginx -t                   # 检查 Nginx 配置
+```
+
+## 相关目录
+
+| 路径 | 说明 |
+| --- | --- |
+| `/usr/local/etc/xray/config.json` | Xray 主配置 |
+| `/etc/nginx/` | Nginx 配置目录 |
+| `/etc/nginx/conf.d/xray-dual.conf` | 项目生成的站点配置 |
+| `/var/www/xray-acme/` | ACME HTTP-01 webroot |
+| `/ssl/xray.key` | TLS 私钥 |
+| `/ssl/xray.crt` | TLS fullchain 证书 |
+| `/etc/xray-dual-protocol/` | 项目状态记录 |
+| `/usr/local/sbin/xray-dual-cert-reload` | 证书续期 hook |
+| `/usr/local/share/xray/geoip.dat` | 可选 GeoIP 数据文件 |
+| `/usr/local/share/xray/geosite.dat` | 可选 GeoSite 数据文件 |
+
+说明：geoip.dat 和 geosite.dat 是数据文件，不是目录。首版脚本尚未自动下载/更新它们；若手动放置，请确保 Xray 配置引用路径一致。
+
+## 版本与 Releases
+
+采用语义化版本管理：MAJOR 为不兼容变更，MINOR 为新增功能，PATCH 为 Bug 修复。每个正式版本的 GitHub Release 应说明发布日期、新功能、修复原因、升级注意事项和测试状态。变更记录见 [CHANGELOG.md](CHANGELOG.md)。CHANGELOG 和普通提交记录不等同于 GitHub 正式 Release。
+
+## 鸣谢
+
+- [wulabing/Xray_onekey](https://github.com/wulabing/Xray_onekey)：原始项目及作者，保留原项目 MIT 版权声明。
+- [XTLS/Xray-core](https://github.com/XTLS/Xray-core)
+- [acme.sh](https://github.com/acmesh-official/acme.sh)
+- [Nginx](https://nginx.org/)
+- 感谢所有上游项目贡献者和测试反馈者。
+
+## 许可证
+
+遵循 MIT License。原项目版权声明保留于 [LICENSE](LICENSE)。本衍生项目不代表上游作者背书。

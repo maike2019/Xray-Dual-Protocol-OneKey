@@ -43,7 +43,7 @@ install_deps(){
   . /etc/os-release
   [[ "$ID" == debian || "$ID" == ubuntu ]] || die "首版仅支持 Debian/Ubuntu"
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget ca-certificates jq nginx cron openssl
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget ca-certificates jq nginx cron openssl iproute2
   systemctl enable --now nginx
   systemctl enable --now cron 2>/dev/null || true
   mkdir -p "$XRAY_DIR" "$(dirname "$NGINX")" "$WEBROOT" "$CERTDIR" "$STATE"

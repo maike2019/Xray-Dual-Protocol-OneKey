@@ -2,7 +2,7 @@
 # Derived from wulabing/Xray_onekey; MIT License.
 set -Eeuo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-VERSION=1.0.0
+VERSION=2.0.0-dev
 XRAY_DIR=/usr/local/etc/xray
 CONF=$XRAY_DIR/config.json
 NGINX=/etc/nginx/conf.d/xray-dual.conf
@@ -243,7 +243,7 @@ domain_tls(){
     cat >"$NGINX" <<EOF
 server {
  listen 80; listen [::]:80; server_name $DOMAIN; root $WEBROOT;
- location ^~ /.well-known/acme-challenge/ { default_type "text/plain"; try_files \\$uri =404; }
+ location ^~ /.well-known/acme-challenge/ { default_type "text/plain"; try_files \$uri =404; }
  location / { return 404; }
 }
 EOF
@@ -263,8 +263,8 @@ nginx_aggregate(){
 # Managed by Xray-Dual-Protocol-OneKey
 server {
  listen 80; listen [::]:80; server_name $d; root $WEBROOT;
- location ^~ /.well-known/acme-challenge/ { default_type "text/plain"; try_files \\$uri =404; }
- location / { return 301 https://\\$host\\$request_uri; }
+ location ^~ /.well-known/acme-challenge/ { default_type "text/plain"; try_files \$uri =404; }
+ location / { return 301 https://\$host\$request_uri; }
 }
 EOF
   if [[ -n "$wp" || -n "$xpath" ]]; then
@@ -276,13 +276,13 @@ EOF
     if [[ -n "$wp" ]]; then cat >>"$t" <<EOF
  location = $wpath {
   proxy_pass http://127.0.0.1:$wp; proxy_http_version 1.1;
-  proxy_set_header Upgrade \\$http_upgrade; proxy_set_header Connection "upgrade"; proxy_set_header Host \\$host;
+  proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; proxy_set_header Host \$host;
  }
 EOF
     fi
     if [[ -n "$xpath" ]]; then cat >>"$t" <<EOF
  location ^~ $xpath {
-  client_max_body_size 0; grpc_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+  client_max_body_size 0; grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
   client_body_timeout 5m; grpc_read_timeout 315s; grpc_send_timeout 5m;
   grpc_pass unix:$SOCKET;
  }

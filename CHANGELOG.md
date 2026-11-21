@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.0-dev] - 2026-11-21 — 七种入站开发版
+
+### Added
+- 增加 TCP TLS Vision、TCP TLS、XHTTP REALITY、XHTTP TLS、XHTTP TLS + Nginx，形成七种 VLESS 入站模式。
+- WS 与 XHTTP 的 Nginx 前置模式聚合到同一个 443 server block，以独立路径分流。
+- 增加逐项安装、七项批量安装、查看和逐项卸载。
+- XHTTP + Nginx 使用 Unix Socket 和受限 socket 权限；TLS 入站共用项目域名证书。
+
+### Safety / limitations
+- 1.x 到 2.x 暂不自动迁移；检测到旧版 tag 时停止，避免覆盖旧配置。
+- 目前仅完成代码与静态检查设计，真实 VPS 安装、续期、socket 权限及客户端互通仍需实测。
+
+
 本文件记录版本变化。每个正式版本发布时，应同步创建 GitHub Release，并将该版本条目作为 Release notes。
 
 ## [1.0.0] - 2026-11-18 — 初始开发版本

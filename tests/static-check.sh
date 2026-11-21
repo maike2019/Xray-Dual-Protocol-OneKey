@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-bash -n "$ROOT/install.sh"
-grep -q 'well-known/acme-challenge' "$ROOT/install.sh"
-grep -q -- '--install-cronjob' "$ROOT/install.sh"
-grep -q 'xtls-rprx-vision' "$ROOT/install.sh"
-grep -q 'DEFAULT_REALITY_PORT=8443' "$ROOT/install.sh"
-! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$ROOT/install.sh"
+SCRIPT="$ROOT/install.sh"
+bash -n "$SCRIPT"
+for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhttp-tls xhttp-nginx; do
+  grep -q "$tag" "$SCRIPT"
+done
+grep -q 'grpc_pass unix:' "$SCRIPT"
+grep -q 'RuntimeDirectory=xray-dual' "$SCRIPT"
+grep -q 'nginx_aggregate' "$SCRIPT"
+grep -q '安装全部七种' "$SCRIPT"
+grep -q 'well-known/acme-challenge' "$SCRIPT"
+grep -q -- '--install-cronjob' "$SCRIPT"
+! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
 echo "Static checks passed."

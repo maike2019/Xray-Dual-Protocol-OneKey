@@ -429,8 +429,11 @@ show_install_status(){
 install_one(){
   local label="$1" tag="$2" fn="$3" tmp link
   if has "$tag"; then
-    echo "[跳过] $label：检测到已安装记录"
-    return 0
+    if jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
+      echo "[跳过] $label：状态记录和 Xray 入站均存在"
+      return 0
+    fi
+    die "$label：发现状态记录，但 Xray 入站不存在。为避免覆盖或误判，已停止；请先查看配置状态并处理异常记录"
   fi
   INSTALL_MODE=1
   INSTALL_CURRENT="$label"

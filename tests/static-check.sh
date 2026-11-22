@@ -4,6 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/install.sh"
 
 bash -n "$SCRIPT"
+bash -n "$ROOT/lib/management.sh"
 
 for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhttp-tls xhttp-nginx; do
   grep -q "$tag" "$SCRIPT"
@@ -52,7 +53,7 @@ current_output=$(printf '%s\n' 'PrivateKey: current-private' 'Password (PublicKe
 [[ "$(xray_output_field password <<<"$current_output")" == "current-password" ]]
 [[ "$(xray_output_field publickey <<<"$current_output")" == "current-password" ]]
 
-grep -q '^PROJECT_VERSION=2.0.5-dev$' "$SCRIPT"
+grep -q '^PROJECT_VERSION=2.1.0-dev
 grep -q 'v$PROJECT_VERSION' "$SCRIPT"
 ! grep -q '^VERSION=' "$SCRIPT"
 grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
@@ -63,3 +64,23 @@ grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
 ! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
 
 echo "Static checks passed."
+ "$SCRIPT"
+grep -q 'v$PROJECT_VERSION' "$SCRIPT"
+! grep -q '^VERSION=' "$SCRIPT"
+grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
+! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"
+! grep -q 'install_ws(){' "$SCRIPT"
+! grep -q '80 端口占用，未做任何 kill' "$SCRIPT"
+! grep -q 'menu(){' "$SCRIPT"
+! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
+
+echo "Static checks passed."
+
+# Management panel wiring and all requested menu entries.
+grep -q 'source "$MANAGEMENT_LIB"' "$SCRIPT"
+for entry in '1. 安装单项配置' '2. 按顺序安装全部七种' '3. 查看所有配置' '4. 修改已有配置' '5. 卸载单项配置' '6. 输出客户端链接' '7. 显示二维码' '8. 启动 / 停止 / 重启' '9. 查看运行日志' '10. 配置健康检查' '11. 证书状态与续期检查' '12. 备份配置' '13. 恢复配置'; do
+  grep -Fq "$entry" "$ROOT/lib/management.sh"
+done
+grep -q 'sha256sum -c' "$ROOT/lib/management.sh"
+grep -q 'xray run -test -config' "$ROOT/lib/management.sh"
+grep -q 'qrencode -t ANSIUTF8' "$ROOT/lib/management.sh"

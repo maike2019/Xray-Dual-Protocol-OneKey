@@ -326,10 +326,9 @@ INSTALL_MODE=0
 INSTALL_CURRENT=""
 INSTALL_TEE_PID=""
 declare -a INSTALL_OK_LABELS=()
-declare -a INSTALL_OK_TAGS=()
 declare -a INSTALL_OK_LINKS=()
 install_summary(){
-  local rc="$1" i tag link label
+  local rc="$1" tag link
   [[ "$INSTALL_MODE" == 1 ]] || return 0
   if [[ -n "$INSTALL_TEE_PID" ]]; then
     exec 3>&- || true
@@ -344,18 +343,18 @@ install_summary(){
     echo "[中断] 安装在「${INSTALL_CURRENT:-未知步骤}」处失败；后续项目未继续执行"
   fi
   if (("${#INSTALL_OK_LABELS[@]}" > 0)); then
-    echo
-    echo "本次成功安装的配置及客户端链接："
-    for i in "${!INSTALL_OK_LABELS[@]}"; do
-      printf '\n[%s] %s\n%s\n' "$((i+1))" "${INSTALL_OK_LABELS[$i]}" "${INSTALL_OK_LINKS[$i]}"
-    done
+    echo "本次新安装成功：${#INSTALL_OK_LABELS[@]} 项"
   fi
   echo
-  echo "当前服务器已登记的配置状态："
+  echo "当前服务器所有已登记配置及客户端链接："
   for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhttp-tls xhttp-nginx; do
     if has "$tag"; then
       link=$(jq -r --arg t "$tag" '.inbounds[$t].link // ""' "$STATE_FILE" 2>/dev/null || true)
-      if [[ -n "$link" ]]; then printf '  [已安装] %s\n' "$tag"; else printf '  [需检查] %s（状态存在，但未保存链接或安装未完整验收）\n' "$tag"; fi
+      if [[ -n "$link" ]]; then
+        printf '\n  [已安装] %s\n  %s\n' "$tag" "$link"
+      else
+        printf '  [需检查] %s（状态存在，但未保存链接或安装未完整验收）\n' "$tag"
+      fi
     else
       printf '  [未安装] %s\n' "$tag"
     fi
@@ -423,7 +422,6 @@ install_one(){
   install -m 600 "$state_tmp" "$STATE_FILE"
   rm -f "$state_tmp"
   INSTALL_OK_LABELS+=("$label")
-  INSTALL_OK_TAGS+=("$tag")
   INSTALL_OK_LINKS+=("$link")
   INSTALL_CURRENT=""
   echo "[成功] $label 已安装并通过基础验收"

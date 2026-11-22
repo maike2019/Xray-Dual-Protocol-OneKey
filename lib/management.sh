@@ -90,7 +90,7 @@ mgr_health(){
  local bad=0 t p domain
  echo "========== 配置健康检查 =========="
  if jq -e '.inbounds|type=="object"' "$STATE_FILE" >/dev/null 2>&1; then echo "[通过] 项目状态 JSON"; else echo "[失败] 项目状态 JSON"; ((bad+=1)); fi
- if xray run -test -config "$CONF" >/dev/null 2>&1; then echo "[通过] Xray 配置语法"; else echo "[失败] Xray 配置语法"; ((bad+=1)); fi
+ if xray_test >/dev/null 2>&1; then echo "[通过] Xray 配置语法及服务账户读取权限"; else echo "[失败] Xray 配置语法"; ((bad+=1)); fi
  if systemctl is-active --quiet xray; then echo "[通过] Xray 服务运行"; else echo "[失败] Xray 服务未运行"; ((bad+=1)); fi
  if nginx -t >/dev/null 2>&1; then echo "[通过] Nginx 配置语法"; else echo "[失败] Nginx 配置语法"; ((bad+=1)); fi
  if has ws-nginx || has xhttp-nginx; then
@@ -137,7 +137,7 @@ mgr_backup(){
 mgr_restore_files(){
  local d="$1" p
  [[ -s "$d/usr/local/etc/xray/config.json" && -s "$d/etc/xray-dual-protocol/state.json" ]] || return 1
- install -D -m 600 "$d/usr/local/etc/xray/config.json" "$CONF"; install -D -m 600 "$d/etc/xray-dual-protocol/state.json" "$STATE_FILE"
+ install -D -m 600 "$d/usr/local/etc/xray/config.json" "$CONF"; secure_xray_config || return 1; install -D -m 600 "$d/etc/xray-dual-protocol/state.json" "$STATE_FILE"
  for p in etc/nginx/conf.d/xray-dual.conf ssl/xray.crt ssl/xray.key etc/systemd/system/xray.service.d/dual-protocol.conf usr/local/sbin/xray-dual-cert-reload; do if [[ -f "$d/$p" ]]; then install -D -m 600 "$d/$p" "/$p"; else rm -f "/$p"; fi; done
 }
 mgr_restore(){
@@ -157,9 +157,9 @@ mgr_restore(){
  while IFS= read -r p; do case "$p" in usr/local/etc/xray/config.json|etc/xray-dual-protocol/state.json|etc/nginx/conf.d/xray-dual.conf|ssl/xray.crt|ssl/xray.key|etc/systemd/system/xray.service.d/dual-protocol.conf|usr/local/sbin/xray-dual-cert-reload) ;; *) echo "备份含非预期路径 $p"; return 1;; esac; done < <(tar -tzf "$selected") || return 1
  tmp=$(mktemp -d); old=$(mktemp -d); tar -xzf "$selected" -C "$tmp" || { rm -rf "$tmp" "$old"; return 1; }
  for p in usr/local/etc/xray/config.json etc/xray-dual-protocol/state.json etc/nginx/conf.d/xray-dual.conf ssl/xray.crt ssl/xray.key etc/systemd/system/xray.service.d/dual-protocol.conf usr/local/sbin/xray-dual-cert-reload; do [[ -f "/$p" ]] && install -D -m 600 "/$p" "$old/$p"; done
- if ! mgr_restore_files "$tmp" || ! jq -e '.inbounds|type=="object"' "$STATE_FILE" >/dev/null || ! xray run -test -config "$CONF" >/dev/null 2>&1 || ! nginx -t >/dev/null 2>&1; then mgr_restore_files "$old" || true; rm -rf "$tmp" "$old"; echo "恢复校验失败，已尝试回滚"; return 1; fi
+ if ! mgr_restore_files "$tmp" || ! jq -e '.inbounds|type=="object"' "$STATE_FILE" >/dev/null || ! xray_test >/dev/null 2>&1 || ! nginx -t >/dev/null 2>&1; then mgr_restore_files "$old" || true; rm -rf "$tmp" "$old"; echo "恢复校验失败，已尝试回滚"; return 1; fi
  systemctl daemon-reload
- if ! systemctl restart xray || ! systemctl is-active --quiet xray || { systemctl is-active --quiet nginx && ! systemctl reload nginx; }; then mgr_restore_files "$old" || true; systemctl daemon-reload; xray run -test -config "$CONF" >/dev/null 2>&1 && systemctl restart xray >/dev/null 2>&1 || true; nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true; rm -rf "$tmp" "$old"; echo "服务恢复失败，已尝试回滚"; return 1; fi
+ if ! systemctl restart xray || ! systemctl is-active --quiet xray || { systemctl is-active --quiet nginx && ! systemctl reload nginx; }; then mgr_restore_files "$old" || true; systemctl daemon-reload; xray_test >/dev/null 2>&1 && systemctl restart xray >/dev/null 2>&1 || true; nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true; rm -rf "$tmp" "$old"; echo "服务恢复失败，已尝试回滚"; return 1; fi
  rm -rf "$tmp" "$old"; echo "备份恢复完成"
 }
 mgr_modify(){

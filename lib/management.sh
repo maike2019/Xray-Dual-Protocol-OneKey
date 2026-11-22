@@ -128,20 +128,74 @@ mgr_restore(){
  rm -rf "$tmp" "$old"; echo "备份恢复完成"
 }
 mgr_modify(){
- mgr_select || return; has "$MGR_TAG" || { echo "配置未安装"; return 1; }
+ mgr_select || return
+ has "$MGR_TAG" || { echo "配置未安装"; return 1; }
  jq -e --arg t "$MGR_TAG" '.inbounds[]?|select(.tag==$t)' "$CONF" >/dev/null || { echo "状态与 Xray 入站不一致，拒绝修改"; return 1; }
- echo "1. 重新生成 UUID  2. 修改直连端口  3. 修改直连 XHTTP 路径"; read -rp "选择（0 返回）: " choice; [[ "$choice" == 0 ]] && return
- local tmp st value tag="$MGR_TAG"; tmp=$(mktemp); st=$(mktemp)
+ echo "修改 $MGR_NAME"
+ echo "1. 重新生成 UUID"
+ [[ "$MGR_TAG" == xhttp-nginx ]] || echo "2. 修改监听端口（WS-Nginx 为本机内部端口）"
+ case "$MGR_TAG" in ws-nginx|xhttp-reality|xhttp-tls|xhttp-nginx) echo "3. 修改传输路径";; esac
+ case "$MGR_TAG" in tcp-reality-vision|xhttp-reality) echo "4. 修改 REALITY dest / SNI"; echo "5. 重新生成 REALITY 密钥和 Short ID";; esac
+ read -rp "选择（0 返回）: " choice
+ [[ "$choice" == 0 ]] && return
+ local tmp st value tag="$MGR_TAG" oldport dest dp sni sid
+ tmp=$(mktemp); st=$(mktemp)
  case "$choice" in
-  1) value=$(new_uuid); jq --arg t "$tag" --arg id "$value" '.inbounds|=map(if .tag==$t then .settings.clients[0].id=$id else . end)' "$CONF" >"$tmp"; jq --arg t "$tag" --arg id "$value" '.inbounds[$t].uuid=$id|.inbounds[$t].link=""' "$STATE_FILE" >"$st";;
-  2) [[ "$tag" != ws-nginx && "$tag" != xhttp-nginx ]] || { rm -f "$tmp" "$st"; echo "Nginx 前置模式不支持修改内部端口"; return 1; }; read -rp "新端口: " value; valid_port "$value" || { rm -f "$tmp" "$st"; echo "端口无效"; return 1; }; if ss -H -lnt "( sport = :$value )"|grep -q .; then rm -f "$tmp" "$st"; echo "端口已占用"; return 1; fi; jq --arg t "$tag" --argjson p "$value" '.inbounds|=map(if .tag==$t then .port=$p else . end)' "$CONF" >"$tmp"; jq --arg t "$tag" --argjson p "$value" '.inbounds[$t].port=$p|.inbounds[$t].link=""' "$STATE_FILE" >"$st";;
-  3) [[ "$tag" == xhttp-reality || "$tag" == xhttp-tls ]] || { rm -f "$tmp" "$st"; echo "仅支持直连 XHTTP"; return 1; }; read -rp "新路径（以 / 开头）: " value; [[ "$value" == /* && "$value" != *" "* ]] || { rm -f "$tmp" "$st"; echo "路径无效"; return 1; }; jq --arg t "$tag" --arg p "$value" '.inbounds|=map(if .tag==$t then .streamSettings.xhttpSettings.path=$p else . end)' "$CONF" >"$tmp"; jq --arg t "$tag" --arg p "$value" '.inbounds[$t].path=$p|.inbounds[$t].link=""' "$STATE_FILE" >"$st";;
+  1)
+   value=$(new_uuid)
+   jq --arg t "$tag" --arg id "$value" '.inbounds|=map(if .tag==$t then .settings.clients[0].id=$id else . end)' "$CONF" >"$tmp"
+   jq --arg t "$tag" --arg id "$value" '.inbounds[$t].uuid=$id|.inbounds[$t].link=""' "$STATE_FILE" >"$st"
+   ;;
+  2)
+   [[ "$tag" != xhttp-nginx ]] || { rm -f "$tmp" "$st"; echo "XHTTP-Nginx 使用 Unix Socket，没有 TCP 监听端口"; return 1; }
+   oldport=$(jq -r --arg t "$tag" '.inbounds[$t].port // empty' "$STATE_FILE")
+   read -rp "新的监听端口: " value
+   valid_port "$value" || { rm -f "$tmp" "$st"; echo "端口无效"; return 1; }
+   if [[ "$value" != "$oldport" ]] && ss -H -lnt "( sport = :$value )" 2>/dev/null | grep -q .; then rm -f "$tmp" "$st"; echo "端口已占用"; return 1; fi
+   jq --arg t "$tag" --argjson p "$value" '.inbounds|=map(if .tag==$t then .port=$p else . end)' "$CONF" >"$tmp"
+   jq --arg t "$tag" --argjson p "$value" '.inbounds[$t].port=$p|.inbounds[$t].link=""' "$STATE_FILE" >"$st"
+   ;;
+  3)
+   case "$tag" in ws-nginx|xhttp-reality|xhttp-tls|xhttp-nginx);; *) rm -f "$tmp" "$st"; echo "此传输模式没有可编辑的路径"; return 1;; esac
+   read -rp "新的路径（必须以 / 开头）: " value
+   [[ "$value" == /* && "$value" != *" "* && "$value" != *"?"* && "$value" != *"#"* ]] || { rm -f "$tmp" "$st"; echo "路径格式无效"; return 1; }
+   if [[ "$tag" == ws-nginx ]]; then
+     jq --arg t "$tag" --arg p "$value" '.inbounds|=map(if .tag==$t then .streamSettings.wsSettings.path=$p else . end)' "$CONF" >"$tmp"
+   else
+     jq --arg t "$tag" --arg p "$value" '.inbounds|=map(if .tag==$t then .streamSettings.xhttpSettings.path=$p else . end)' "$CONF" >"$tmp"
+   fi
+   jq --arg t "$tag" --arg p "$value" '.inbounds[$t].path=$p|.inbounds[$t].link=""' "$STATE_FILE" >"$st"
+   ;;
+  4)
+   [[ "$tag" == tcp-reality-vision || "$tag" == xhttp-reality ]] || { rm -f "$tmp" "$st"; echo "此配置不是 REALITY"; return 1; }
+   read -rp "新的 REALITY dest 主机名（不含端口）: " dest
+   [[ "$dest" =~ ^[A-Za-z0-9.-]+$ && "$dest" != .* && "$dest" != *. && "$dest" != *..* ]] || { rm -f "$tmp" "$st"; echo "dest 格式无效"; return 1; }
+   read -rp "dest 端口 [443]: " dp; dp=${dp:-443}; valid_port "$dp" || { rm -f "$tmp" "$st"; echo "dest 端口无效"; return 1; }
+   read -rp "SNI [$dest]: " sni; sni=${sni:-$dest}
+   [[ "$sni" =~ ^[A-Za-z0-9.-]+$ && "$sni" != .* && "$sni" != *. && "$sni" != *..* ]] || { rm -f "$tmp" "$st"; echo "SNI 格式无效"; return 1; }
+   jq --arg t "$tag" --arg d "$dest:$dp" --arg s "$sni" '.inbounds|=map(if .tag==$t then (.streamSettings.realitySettings.dest=$d | .streamSettings.realitySettings.serverNames=[$s]) else . end)' "$CONF" >"$tmp"
+   jq --arg t "$tag" --arg d "$dest" --arg s "$sni" --argjson dp "$dp" '.inbounds[$t].dest=$d|.inbounds[$t].dest_port=$dp|.inbounds[$t].sni=$s|.inbounds[$t].link=""' "$STATE_FILE" >"$st"
+   ;;
+  5)
+   [[ "$tag" == tcp-reality-vision || "$tag" == xhttp-reality ]] || { rm -f "$tmp" "$st"; echo "此配置不是 REALITY"; return 1; }
+   reality_keys; sid=$(openssl rand -hex 8)
+   jq --arg t "$tag" --arg pk "$R_PRIV" --arg sid "$sid" '.inbounds|=map(if .tag==$t then (.streamSettings.realitySettings.privateKey=$pk | .streamSettings.realitySettings.shortIds=[$sid]) else . end)' "$CONF" >"$tmp"
+   jq --arg t "$tag" --arg pbk "$R_PUB" --arg sid "$sid" '.inbounds[$t].pbk=$pbk|.inbounds[$t].sid=$sid|.inbounds[$t].link=""' "$STATE_FILE" >"$st"
+   ;;
   *) rm -f "$tmp" "$st"; echo "无效选项"; return 1;;
  esac
- jq empty "$tmp" && jq -e '.inbounds|type=="object"' "$st" >/dev/null || { rm -f "$tmp" "$st"; echo "候选配置无效"; return 1; }
- local b="$CONF.manager.bak.$(date +%s)" sb="$STATE_FILE.manager.bak.$(date +%s)"; cp -a "$CONF" "$b"; cp -a "$STATE_FILE" "$sb"
- if ! apply_config <"$tmp"; then cp -a "$b" "$CONF"; cp -a "$sb" "$STATE_FILE"; rm -f "$tmp" "$st"; return 1; fi
- install -m 600 "$st" "$STATE_FILE"; rm -f "$tmp" "$st"; refresh_saved_links; make_saved_link "$tag"
+ if ! jq empty "$tmp" || ! jq -e '.inbounds|type=="object"' "$st" >/dev/null; then rm -f "$tmp" "$st"; echo "候选配置校验失败"; return 1; fi
+ manager_txn_snapshot
+ if ! apply_config <"$tmp"; then manager_txn_rollback; rm -f "$tmp" "$st"; return 1; fi
+ if ! install -m 600 "$st" "$STATE_FILE"; then manager_txn_rollback; rm -f "$tmp" "$st"; return 1; fi
+ rm -f "$tmp" "$st"
+ if [[ "$tag" == ws-nginx || "$tag" == xhttp-nginx ]]; then
+   if ! nginx_aggregate; then manager_txn_rollback; echo "Nginx 路由更新失败，已尝试回滚"; return 1; fi
+ fi
+ manager_txn_commit
+ refresh_saved_links
+ echo "[完成] 配置已修改；请重新导入客户端链接"
+ make_saved_link "$tag"
 }
 mgr_remove(){
  mgr_select || return; has "$MGR_TAG" || { echo "配置未安装"; return 1; }

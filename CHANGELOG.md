@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.2-dev] - 2026-11-22 — REALITY 密钥解析与输入提示修复
+
+### Fixed
+- `xray x25519` 解析同时兼容旧版 `Private key / Public key` 和新版 `PrivateKey / Password` 输出标签。
+- REALITY dest 提示明确要求只填写主机名，不包含端口；目标端口单独输入，默认 443。
+- 本机 REALITY 监听端口提示明确说明它是客户端连接 VPS 时使用的端口。
+- 对 dest、目标端口和 SNI 增加输入校验；格式错误时给出针对性说明。
+- README 增加完整输入示例，解释本机监听端口与 dest 目标端口的区别。
+
+### Validation
+- 静态检查增加两种 Xray 密钥输出格式的解析测试。
+- GitHub Actions 验证 Bash 语法和项目静态检查；实际服务器端连接仍需 VPS 测试。
+
 ## [2.0.1-dev] - 2026-11-22 — Nginx 端口识别与分支安装修复
 
 ### Fixed

@@ -326,7 +326,6 @@ INSTALL_MODE=0
 INSTALL_CURRENT=""
 INSTALL_TEE_PID=""
 declare -a INSTALL_OK_LABELS=()
-declare -a INSTALL_OK_LINKS=()
 install_summary(){
   local rc="$1" tag link
   [[ "$INSTALL_MODE" == 1 ]] || return 0
@@ -422,7 +421,6 @@ install_one(){
   install -m 600 "$state_tmp" "$STATE_FILE"
   rm -f "$state_tmp"
   INSTALL_OK_LABELS+=("$label")
-  INSTALL_OK_LINKS+=("$link")
   INSTALL_CURRENT=""
   echo "[成功] $label 已安装并通过基础验收"
 }

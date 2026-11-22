@@ -42,18 +42,7 @@ current_output=$(printf '%s\n' 'PrivateKey: current-private' 'Password (PublicKe
 [[ "$(xray_output_field password <<<"$current_output")" == "current-password" ]]
 [[ "$(xray_output_field publickey <<<"$current_output")" == "current-password" ]]
 
-grep -q '^PROJECT_VERSION=2.0.4-dev
-grep -q 'v$PROJECT_VERSION' "$SCRIPT"
-! grep -q '^VERSION=' "$SCRIPT"
-grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
-! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"
-! grep -q 'install_ws(){' "$SCRIPT"
-! grep -q '80 端口占用，未做任何 kill' "$SCRIPT"
-! grep -q 'menu(){' "$SCRIPT"
-! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
-
-echo "Static checks passed."
- "$SCRIPT"
+grep -q '^PROJECT_VERSION=2.0.4-dev$' "$SCRIPT"
 grep -q 'v$PROJECT_VERSION' "$SCRIPT"
 ! grep -q '^VERSION=' "$SCRIPT"
 grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"

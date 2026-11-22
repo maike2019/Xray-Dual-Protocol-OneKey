@@ -26,7 +26,10 @@ for entry in '1. 安装单项配置' '2. 按顺序安装全部七种' '3. 查看
 done
 
 grep -q 'sha256sum -c' "$MANAGER"
-grep -q 'xray run -test -config' "$MANAGER"
+grep -q 'xray_test' "$MANAGER"
+grep -q 'secure_xray_config' "$SCRIPT"
+grep -q 'install -o root -g "$service_group" -m 640' "$SCRIPT"
+grep -q 'runuser -u "$u" -g "$g" -- xray run -test -config "$CONF"' "$SCRIPT"
 grep -q 'qrencode -t ANSIUTF8' "$MANAGER"
 grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
 ! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"

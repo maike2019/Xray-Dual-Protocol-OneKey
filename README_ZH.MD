@@ -82,7 +82,8 @@ wget -N -O install.sh "https://raw.githubusercontent.com/maike2019/Xray-Dual-Pro
   ```
 
   因此本例对应：VPS 监听端口 `8443`，REALITY target/dest 为 `www.calstatela.edu:443`，SNI 为 `www.calstatela.edu`。不要把 `:8443` 追加到 dest。
-- Private Key 只保存在服务端；Public Key 和 Short ID 供客户端使用。
+- Private Key 只保存在服务端；Xray 26.x 输出的 `Password (PublicKey)` 是客户端使用的公钥，不能与 Private Key 混淆。
+- REALITY target 的 TLS/ALPN 特征只是筛选条件之一；优先核对目标 IP/ASN 与站点证书。避免把 Cloudflare 等大型 CDN 的前端 IP 当作首选 target，因为未通过 REALITY 认证的流量会回落转发到 target。
 - 只有 TCP + REALITY + Vision 使用 `xtls-rprx-vision`；XHTTP + REALITY 不配置 Vision flow。
 
 重新生成密钥或 Short ID 后，旧客户端链接会失效，必须同步更新客户端。

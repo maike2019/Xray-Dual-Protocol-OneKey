@@ -16,7 +16,6 @@ DEFAULT_REALITY_PORT=8443
 ok(){ echo "[OK] $*"; }
 die(){ echo "[ERROR] $*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || die "请以 root 运行"
-command -v jq >/dev/null || die "缺少 jq"
 backup(){ [[ -e "$1" ]] && cp -a "$1" "$1.bak.$(date +%Y%m%d%H%M%S)"; }
 valid_port(){ [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1>=1 && 10#$1<=65535)); }
 xray_test(){ xray run -test -config "$CONF"; }
@@ -55,6 +54,7 @@ install_deps(){
   DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget ca-certificates jq nginx cron openssl iproute2 qrencode
   systemctl enable --now cron 2>/dev/null || true
   mkdir -p "$XRAY_DIR" "$(dirname "$NGINX")" "$WEBROOT" "$CERTDIR" "$STATE"
+  command -v jq >/dev/null 2>&1 || die "jq 安装失败；请检查 apt 源和网络后重试"
 }
 port_listener_lines(){
   ss -H -lntp "( sport = :$1 )" 2>/dev/null || true
@@ -647,8 +647,8 @@ menu_v2(){
     *) die '无效选项';;
   esac
 }
-init_v2
 install_deps
+init_v2
 install_xray
 refresh_saved_links
 # Load the versioned management panel shipped alongside this installer.

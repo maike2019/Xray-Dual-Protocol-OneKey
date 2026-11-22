@@ -2,7 +2,7 @@
 # Derived from wulabing/Xray_onekey; MIT License.
 set -Eeuo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-VERSION=2.0.0-dev
+VERSION=2.0.1-dev
 XRAY_DIR=/usr/local/etc/xray
 CONF=$XRAY_DIR/config.json
 NGINX=/etc/nginx/conf.d/xray-dual.conf
@@ -19,13 +19,6 @@ die(){ echo "[ERROR] $*" >&2; exit 1; }
 command -v jq >/dev/null || die "缺少 jq"
 backup(){ [[ -e "$1" ]] && cp -a "$1" "$1.bak.$(date +%Y%m%d%H%M%S)"; }
 valid_port(){ [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1>=1 && 10#$1<=65535)); }
-port_free(){
-  if ss -H -lntup "( sport = :$1 )" 2>/dev/null | grep -q .; then
-    ss -lntup "( sport = :$1 )" || true
-    return 1
-  fi
-  return 0
-}
 xray_test(){ xray run -test -config "$CONF"; }
 apply_config(){
   local t b
@@ -44,9 +37,43 @@ install_deps(){
   [[ "$ID" == debian || "$ID" == ubuntu ]] || die "首版仅支持 Debian/Ubuntu"
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget ca-certificates jq nginx cron openssl iproute2
-  systemctl enable --now nginx
   systemctl enable --now cron 2>/dev/null || true
   mkdir -p "$XRAY_DIR" "$(dirname "$NGINX")" "$WEBROOT" "$CERTDIR" "$STATE"
+}
+port_listener_lines(){
+  ss -H -lntp "( sport = :$1 )" 2>/dev/null || true
+}
+listener_processes(){
+  local lines
+  lines=$(port_listener_lines "$1")
+  [[ -n "$lines" ]] || return 0
+  sed -n 's/.*users:(\(.*\)).*/\1/p' <<<"$lines" |
+    grep -oE '"[^"]+"' | tr -d '"' | sort -u
+}
+assert_port_free_or_nginx(){
+  local port="$1" lines processes
+  lines=$(port_listener_lines "$port")
+  [[ -n "$lines" ]] || return 0
+  processes=$(listener_processes "$port")
+  if [[ "$processes" != "nginx" ]]; then
+    printf '%s\n' "$lines" >&2
+    return 1
+  fi
+}
+ensure_nginx_http(){
+  local lines processes
+  if ! assert_port_free_or_nginx 80; then
+    die "TCP/80 已被非 Nginx 服务占用；请先确认占用程序，脚本不会结束任何进程"
+  fi
+  systemctl enable nginx
+  systemctl start nginx || {
+    systemctl status nginx --no-pager >&2 || true
+    die "Nginx 启动失败，请检查 systemctl status nginx 和 journalctl -u nginx"
+  }
+  lines=$(port_listener_lines 80)
+  processes=$(listener_processes 80)
+  [[ -n "$lines" && "$processes" == "nginx" ]] ||
+    die "Nginx 启动后未能独占监听 TCP/80，停止签发证书"
 }
 install_xray(){
   if ! command -v xray >/dev/null 2>&1; then
@@ -74,40 +101,6 @@ systemctl restart xray
 HOOK
 chmod 750 "$HOOK"
 }
-nginx_conf(){
- local d="$1" p="$2" path="$3"
- cat >"$NGINX" <<EOF
-server {
- listen 80;
- listen [::]:80;
- server_name $d;
- root $WEBROOT;
- location ^~ /.well-known/acme-challenge/ {
-   default_type "text/plain";
-   try_files \$uri =404;
- }
- location / { return 301 https://\$host\$request_uri; }
-}
-server {
- listen 443 ssl http2;
- listen [::]:443 ssl;
- server_name $d;
- ssl_certificate $CERT;
- ssl_certificate_key $KEY;
- ssl_protocols TLSv1.2 TLSv1.3;
- location $path {
-   proxy_pass http://127.0.0.1:$p;
-   proxy_http_version 1.1;
-   proxy_set_header Upgrade \$http_upgrade;
-   proxy_set_header Connection "upgrade";
-   proxy_set_header Host \$host;
-   proxy_set_header X-Real-IP \$remote_addr;
- }
- location / { return 404; }
-}
-EOF
- nginx -t
-}
 acme_setup(){
  command -v curl >/dev/null
  [[ -x "$HOME/.acme.sh/acme.sh" ]] || curl -fsSL https://get.acme.sh | sh -s "email=admin@$DOMAIN"
@@ -128,93 +121,6 @@ reality_keys(){
  R_PUB=$(awk -F ': *' '/Password:/ {print $2;exit}' <<<"$o")
  [[ -n "$R_PRIV" && -n "$R_PUB" ]] || die "无法识别 xray x25519 输出，停止以避免写入空密钥"
 }
-install_ws(){
- read -rp "WS TLS 域名（A/AAAA 应指向本机）: " d
- [[ "$d" =~ ^[A-Za-z0-9.-]+$ ]] || die "域名格式不正确"
- DOMAIN=$d
- # Ensure a valid base Xray config exists before the ACME deploy hook runs.
- if [[ ! -s "$CONF" ]]; then
-   printf '%s\n' '{"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"blocked"}],"routing":{"rules":[]}}' >"$CONF"
-   chmod 600 "$CONF"
- fi
- port_free 80 || die "80 端口占用，未做任何 kill"
- port_free 443 || die "443 端口占用，未做任何 kill"
- local p path id base
- p=$(shuf -i 12000-50000 -n 1); port_free "$p" || die "回源端口占用，请重试"
- path="/$(openssl rand -hex 8)/"; id=$(new_uuid)
- # 先放置只含 challenge 的 HTTP 配置，签发不依赖 TLS 端口
- cat >"$NGINX" <<EOF
-server {
- listen 80;
- listen [::]:80;
- server_name $DOMAIN;
- root $WEBROOT;
- location ^~ /.well-known/acme-challenge/ { default_type "text/plain"; try_files \$uri =404; }
- location / { return 404; }
-}
-EOF
- nginx -t && systemctl reload nginx
- acme_setup
- nginx_conf "$DOMAIN" "$p" "$path"
- base=$(cat "$CONF" 2>/dev/null || echo '{"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct"}]}')
- jq --arg id "$id" --argjson p "$p" --arg path "$path" '
- .inbounds=((.inbounds//[])|map(select(.tag!="dual-ws")))+[{"tag":"dual-ws","listen":"127.0.0.1","port":$p,"protocol":"vless","settings":{"clients":[{"id":$id}],"decryption":"none"},"streamSettings":{"network":"ws","security":"none","wsSettings":{"path":$path}}}]
- ' <<<"$base" | apply_config
- printf 'WS_DOMAIN=%s\nWS_UUID=%s\nWS_PORT=%s\nWS_PATH=%s\n' "$DOMAIN" "$id" "$p" "$path" >>"$STATE/installed"
- systemctl reload nginx
- echo "WS 分享链接：vless://$id@$DOMAIN:443?encryption=none&security=tls&type=ws&host=$DOMAIN&path=$(jq -rn --arg x "$path" '$x|@uri')#WS-TLS"
-}
-install_reality(){
- local p dest dp sni sid id base ip
- read -rp "REALITY 监听端口 [8443]: " p; p=${p:-$DEFAULT_REALITY_PORT}
- valid_port "$p" || die "监听端口无效"; port_free "$p" || die "端口占用，未杀进程"
- read -rp "dest 目标域名: " dest; [[ "$dest" =~ ^[A-Za-z0-9.-]+$ ]] || die "域名格式无效"
- read -rp "dest 端口 [443]: " dp; dp=${dp:-443}; valid_port "$dp" || die "dest 端口无效"
- read -rp "serverName/SNI [$dest]: " sni; sni=${sni:-$dest}
- [[ "$sni" =~ ^[A-Za-z0-9.-]+$ ]] || die "SNI 格式无效"
- id=$(new_uuid); sid=$(openssl rand -hex 8); reality_keys
- base=$(cat "$CONF" 2>/dev/null || echo '{"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct"}]}')
- jq --arg id "$id" --argjson p "$p" --arg dest "$dest:$dp" --arg sni "$sni" --arg sid "$sid" --arg pk "$R_PRIV" '
- .inbounds=((.inbounds//[])|map(select(.tag!="dual-reality")))+[{"tag":"dual-reality","listen":"0.0.0.0","port":$p,"protocol":"vless","settings":{"clients":[{"id":$id,"flow":"xtls-rprx-vision"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":$dest,"xver":0,"serverNames":[$sni],"privateKey":$pk,"shortIds":[$sid]}}}]
- ' <<<"$base" | apply_config
- ip=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
- printf 'REALITY_UUID=%s\nREALITY_PORT=%s\nREALITY_DEST=%s:%s\nREALITY_SNI=%s\nREALITY_SID=%s\nREALITY_PUBLIC=%s\n' "$id" "$p" "$dest" "$dp" "$sni" "$sid" "$R_PUB" >>"$STATE/installed"
- echo "REALITY 分享链接：vless://$id@$ip:$p?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$sni&fp=chrome&pbk=$R_PUB&sid=$sid&type=tcp#REALITY-Vision"
- echo "请在系统防火墙和云安全组放行 TCP/$p"
-}
-show_info(){
- [[ -f "$CONF" ]] || { echo "尚无配置"; return; }
- jq -r '.inbounds[]|[.tag,.listen,.port,.protocol,(.streamSettings.security//"none")]|@tsv' "$CONF"
- [[ -f "$STATE/installed" ]] && cat "$STATE/installed"
-}
-manage_reality(){
- [[ -f "$CONF" ]] || die "Xray 配置不存在"
- jq -e '.inbounds[]|select(.tag=="dual-reality")' "$CONF" >/dev/null || die "REALITY 尚未安装"
- echo "1) 修改端口 2) 修改 dest/SNI 3) 重新生成密钥与 Short ID"
- read -rp "选择: " c
- local t
- t=$(mktemp)
- case "$c" in
- 1) read -rp "新端口: " p; valid_port "$p" || die "端口无效"; port_free "$p" || die "端口占用"; jq --argjson p "$p" '(.inbounds[]|select(.tag=="dual-reality").port)=$p' "$CONF" >"$t" ;;
- 2) read -rp "dest 域名: " d; [[ "$d" =~ ^[A-Za-z0-9.-]+$ ]] || die "域名无效"; read -rp "dest 端口 [443]: " dp; dp=${dp:-443}; valid_port "$dp" || die "端口无效"; read -rp "SNI [$d]: " s; s=${s:-$d}; jq --arg d "$d:$dp" --arg s "$s" '(.inbounds[]|select(.tag=="dual-reality").streamSettings.realitySettings.dest)=$d | (.inbounds[]|select(.tag=="dual-reality").streamSettings.realitySettings.serverNames)=[$s]' "$CONF" >"$t" ;;
- 3) reality_keys; sid=$(openssl rand -hex 8); jq --arg k "$R_PRIV" --arg s "$sid" '(.inbounds[]|select(.tag=="dual-reality").streamSettings.realitySettings.privateKey)=$k | (.inbounds[]|select(.tag=="dual-reality").streamSettings.realitySettings.shortIds)=[$s]' "$CONF" >"$t"; echo "新客户端参数 PublicKey=$R_PUB ShortID=$sid" ;;
- *) rm -f "$t"; die "无效选项" ;;
- esac
- cat "$t" | apply_config; rm -f "$t"
-}
-menu(){
- echo "Xray Dual Protocol OneKey v$VERSION"
- echo "1) 安装/补装 WS  2) 安装/补装 REALITY  3) 安装两者  4) 查看配置  5) 管理 REALITY  6) 证书状态  0) 退出"
- read -rp "选择: " n
- case "$n" in
- 1|2|3) install_deps; install_xray; [[ "$n" == 1 || "$n" == 3 ]] && install_ws; [[ "$n" == 2 || "$n" == 3 ]] && install_reality ;;
- 4) show_info ;;
- 5) manage_reality ;;
- 6) "$HOME/.acme.sh/acme.sh" --list 2>/dev/null || true; systemctl list-timers --all 2>/dev/null|grep -i acme || true; crontab -l 2>/dev/null|grep -i acme || true; openssl x509 -in "$CERT" -noout -dates 2>/dev/null || true ;;
- 0) exit 0 ;;
- *) die "无效选项" ;;
- esac
-}
 # Multi-inbound 2.x manager. Each tag is independently installed/removed.
 STATE_FILE="$STATE/state.json"
 SOCKET=/run/xray-dual/xhttp.sock
@@ -232,6 +138,7 @@ state_del(){ local t="$1" f; f=$(mktemp); jq --arg t "$t" 'del(.inbounds[$t])' "
 inbound_add(){ local t="$1" i="$2"; jq --arg t "$t" --argjson i "$i" '.inbounds=((.inbounds//[])|map(select(.tag!=$t)))+[$i]' "$CONF" | apply_config; }
 inbound_del(){ jq --arg t "$1" '.inbounds=((.inbounds//[])|map(select(.tag!=$t)))' "$CONF" | apply_config; }
 domain_tls(){
+  ensure_nginx_http
   DOMAIN=$(jq -r '.domain // ""' "$STATE_FILE")
   if [[ -z "$DOMAIN" ]]; then
     read -rp "TLS 域名（所有 TLS 配置共用）: " DOMAIN
@@ -296,12 +203,22 @@ EOF
   systemctl reload nginx
 }
 check_443(){
-  if has ws-nginx || has xhttp-nginx; then ss -lntp 2>/dev/null|grep -q nginx || die "现有 Nginx 前置 443 未监听"
-  else ! ss -H -lnt "( sport = :443 )" 2>/dev/null|grep -q . || die "443 端口已占用"
+  local lines processes
+  lines=$(port_listener_lines 443)
+  if [[ -n "$lines" ]]; then
+    processes=$(listener_processes 443)
+    if [[ "$processes" != "nginx" ]]; then
+      printf '%s\n' "$lines" >&2
+      die "TCP/443 已被非 Nginx 服务占用；为避免中断现有服务，停止安装"
+    fi
+  fi
+  if has ws-nginx || has xhttp-nginx; then
+    [[ -n "$lines" && "$processes" == "nginx" ]] ||
+      die "已有 Nginx 前置入站，但 Nginx 当前未监听 TCP/443"
   fi
 }
 add_ws2(){
-  has ws-nginx && die "WS-Nginx 已安装"; check_443; domain_tls
+  has ws-nginx && die "WS-Nginx 已安装"; check_443; domain_tls; check_443
   local id p path rec ib; id=$(new_uuid); p=$(shuf -i 12000-50000 -n1); path="/$(openssl rand -hex 12)/"
   rec=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{uuid:$id,path:$path,port:$p}')
   ib=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{tag:"ws-nginx",listen:"127.0.0.1",port:$p,protocol:"vless",settings:{clients:[{id:$id}],decryption:"none"},streamSettings:{network:"ws",security:"none",wsSettings:{path:$path}}}')
@@ -309,7 +226,7 @@ add_ws2(){
   echo "vless://$id@$DOMAIN:443?encryption=none&security=tls&type=ws&host=$DOMAIN&path=$(jq -rn --arg p "$path" '$p|@uri')#WS-TLS-Nginx"
 }
 add_xhttp_nginx2(){
-  has xhttp-nginx && die "XHTTP-Nginx 已安装"; check_443; domain_tls
+  has xhttp-nginx && die "XHTTP-Nginx 已安装"; check_443; domain_tls; check_443
   mkdir -p /etc/systemd/system/xray.service.d
   cat >/etc/systemd/system/xray.service.d/dual-protocol.conf <<'UNIT'
 [Service]
@@ -383,6 +300,7 @@ all_v2(){
   has xhttp-nginx || add_xhttp_nginx2
 }
 menu_v2(){
+  echo "Xray Dual Protocol OneKey v$VERSION"
   echo '1 WS+TLS+Nginx  2 TCP+REALITY+Vision  3 TCP+TLS+Vision  4 TCP+TLS'
   echo '5 XHTTP+REALITY  6 XHTTP+TLS  7 XHTTP+TLS+Nginx  8 安装全部七种'
   echo '9 查看配置  10 卸载单项  11 证书状态  0 退出'

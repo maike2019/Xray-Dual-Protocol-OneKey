@@ -18,7 +18,41 @@ die(){ echo "[ERROR] $*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || die "请以 root 运行"
 backup(){ [[ -e "$1" ]] && cp -a "$1" "$1.bak.$(date +%Y%m%d%H%M%S)"; }
 valid_port(){ [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1>=1 && 10#$1<=65535)); }
-xray_test(){ xray run -test -config "$CONF"; }
+xray_service_user(){
+  local u
+  u=$(systemctl show xray -p User --value 2>/dev/null || true)
+  printf '%s\n' "${u:-root}"
+}
+xray_service_group(){
+  local u g
+  u=$(xray_service_user)
+  g=$(systemctl show xray -p Group --value 2>/dev/null || true)
+  if [[ -z "$g" ]]; then g=$(id -gn "$u" 2>/dev/null) || return 1; fi
+  getent group "$g" >/dev/null 2>&1 || return 1
+  printf '%s\n' "$g"
+}
+# Xray runs unprivileged. Keep the config root-owned, but readable by the
+# service's effective group; the directory must also be traversable.
+secure_xray_config(){
+  [[ -f "$CONF" ]] || return 0
+  local g
+  g=$(xray_service_group) || { echo "[ERROR] 无法确定 Xray 服务组，拒绝设置配置权限" >&2; return 1; }
+  chown root:"$g" "$XRAY_DIR" "$CONF"
+  chmod 750 "$XRAY_DIR"
+  chmod 640 "$CONF"
+}
+xray_test(){
+  secure_xray_config || return 1
+  local u g
+  u=$(xray_service_user)
+  if [[ "$u" == root ]]; then
+    xray run -test -config "$CONF"
+  else
+    g=$(xray_service_group) || return 1
+    command -v runuser >/dev/null 2>&1 || { echo "[ERROR] 缺少 runuser，无法按 Xray 服务身份验证配置" >&2; return 1; }
+    runuser -u "$u" -g "$g" -- xray run -test -config "$CONF"
+  fi
+}
 apply_config(){
   local t b stamp
   t=$(mktemp "$XRAY_DIR/config.XXXXXX")
@@ -31,16 +65,20 @@ apply_config(){
   stamp=$(date +%Y%m%d%H%M%S)
   b="$CONF.bak.$stamp"
   cp -a "$CONF" "$b"
-  install -m 600 "$t" "$CONF"
+  local service_group
+  service_group=$(xray_service_group) || { rm -f "$t"; echo "[ERROR] 无法确定 Xray 服务组" >&2; return 1; }
+  install -o root -g "$service_group" -m 640 "$t" "$CONF"
   rm -f "$t"
   if ! xray_test; then
     cp -a "$b" "$CONF"
+    secure_xray_config || true
     xray_test >/dev/null 2>&1 || true
     echo "[ERROR] Xray 配置测试失败，已恢复原配置（备份：$b）" >&2
     return 1
   fi
   if ! systemctl restart xray || ! systemctl is-active --quiet xray; then
     cp -a "$b" "$CONF"
+    secure_xray_config || true
     xray_test >/dev/null 2>&1 || true
     systemctl restart xray >/dev/null 2>&1 || true
     echo "[ERROR] Xray 重启/运行检查失败，已恢复原配置并尝试恢复旧服务（备份：$b）" >&2
@@ -110,8 +148,19 @@ g=$(id -gn "$u")
 chown "$u:$g" /ssl /ssl/xray.crt /ssl/xray.key
 chmod 750 /ssl
 chmod 640 /ssl/xray.crt /ssl/xray.key
+# Keep the config readable by the effective systemd service group.
+sg=$(systemctl show xray -p Group --value 2>/dev/null || true)
+[[ -n "$sg" ]] || sg=$(id -gn "$u")
+chown root:"$sg" /usr/local/etc/xray
+chmod 750 /usr/local/etc/xray
+chown root:"$sg" /usr/local/etc/xray/config.json
+chmod 640 /usr/local/etc/xray/config.json
 nginx -t
-xray run -test -config /usr/local/etc/xray/config.json
+if [[ "$u" == root ]]; then
+  xray run -test -config /usr/local/etc/xray/config.json
+else
+  runuser -u "$u" -g "$sg" -- xray run -test -config /usr/local/etc/xray/config.json
+fi
 systemctl reload nginx
 systemctl restart xray
 HOOK
@@ -172,6 +221,7 @@ init_v2(){
   [[ -s "$STATE_FILE" ]] || printf '{"domain":"","inbounds":{}}\n' >"$STATE_FILE"
   jq -e '.inbounds|type=="object"' "$STATE_FILE" >/dev/null || die "状态文件损坏"
   if [[ ! -s "$CONF" ]]; then printf '%s\n' '{"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct","settings":{}},{"protocol":"blackhole","tag":"blocked","settings":{}}],"routing":{"rules":[]}}' >"$CONF"; fi
+  secure_xray_config
 }
 has(){ jq -e --arg t "$1" '.inbounds[$t]' "$STATE_FILE" >/dev/null 2>&1; }
 inbound_health(){
@@ -359,7 +409,8 @@ manager_txn_rollback(){
     cp -a "$TXN_DIR/xray-dropin" /etc/systemd/system/xray.service.d/dual-protocol.conf
   else rm -f /etc/systemd/system/xray.service.d/dual-protocol.conf; fi
   systemctl daemon-reload >/dev/null 2>&1 || true
-  xray run -test -config "$CONF" >/dev/null 2>&1 && systemctl restart xray >/dev/null 2>&1 || true
+  secure_xray_config || true
+  xray_test >/dev/null 2>&1 && systemctl restart xray >/dev/null 2>&1 || true
   nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
   rm -rf "$TXN_DIR"
 }
@@ -583,7 +634,7 @@ install_one(){
   INSTALL_TEE_PID=""
   echo "[完成] 步骤 1/3：安装函数已返回"
   echo "[进行中] 步骤 2/3：验证 Xray 配置及服务状态"
-  xray run -test -config "$CONF" >/dev/null || { rm -f "$tmp"; echo "[失败] Xray 配置校验未通过" >&2; return 1; }
+  xray_test >/dev/null || { rm -f "$tmp"; echo "[失败] Xray 配置校验未通过（已按 Xray 服务身份测试，请查看上方错误）" >&2; return 1; }
   systemctl is-active --quiet xray || { rm -f "$tmp"; echo "[失败] Xray 服务未处于 active 状态" >&2; return 1; }
   if [[ "$tag" == ws-nginx || "$tag" == xhttp-nginx ]]; then
     nginx -t >/dev/null || { rm -f "$tmp"; echo "[失败] Nginx 配置校验未通过" >&2; return 1; }
@@ -655,6 +706,7 @@ menu_v2(){
 install_deps
 init_v2
 install_xray
+secure_xray_config || die "Xray 配置文件权限初始化失败"
 refresh_saved_links
 # Load the versioned management panel shipped alongside this installer.
 MANAGEMENT_LIB=/usr/local/lib/xray-dual-protocol/management.sh

@@ -113,7 +113,7 @@ mgr_restore(){
  local -a files=(); local f n=0 choice selected tmp old p
  mkdir -p "$MGR_BACKUPS"
  while IFS= read -r f; do files+=("$f"); done < <(find "$MGR_BACKUPS" -maxdepth 1 -type f -name 'xray-dual-*.tar.gz'|sort -r)
- (("@{#files[@]}")) || { echo "没有备份"; return 1; }
+ ((${#files[@]})) || { echo "没有备份"; return 1; }
  for f in "${files[@]}"; do ((n+=1)); echo "$n. $(basename "$f")"; done
  read -rp "选择备份（0 返回）: " choice; [[ "$choice" == 0 ]] && return
  [[ "$choice" =~ ^[0-9]+$ ]] && ((choice>0 && choice<=${#files[@]})) || { echo "编号无效"; return 1; }

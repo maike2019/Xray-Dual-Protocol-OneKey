@@ -19,14 +19,29 @@ grep -q 'xray_output_field password' "$SCRIPT"
 grep -q 'xray_output_field publickey' "$SCRIPT"
 grep -q 'REALITY dest 主机名（只填域名/IP，不含端口' "$SCRIPT"
 grep -Fq 'dest 端口 [443]' "$SCRIPT"
-# Exercise the parser against both documented Xray output formats.
+# Exercise legacy, intermediate, and current Xray x25519 output labels.
 eval "$(sed -n '/^xray_output_field(){/,/^}/p' "$SCRIPT")"
 legacy_output=$(printf '%s\n' 'Private key: legacy-private' 'Public key: legacy-public')
-modern_output=$(printf '%s\n' 'PrivateKey: modern-private' 'Password: modern-password' 'Hash32: ignored-hash')
+intermediate_output=$(printf '%s\n' 'PrivateKey: middle-private' 'Password: middle-password')
+current_output=$(printf '%s\n' 'PrivateKey: current-private' 'Password (PublicKey): current-password' 'Hash32: ignored-hash')
 [[ "$(xray_output_field privatekey <<<"$legacy_output")" == "legacy-private" ]]
 [[ "$(xray_output_field publickey <<<"$legacy_output")" == "legacy-public" ]]
-[[ "$(xray_output_field privatekey <<<"$modern_output")" == "modern-private" ]]
-[[ "$(xray_output_field password <<<"$modern_output")" == "modern-password" ]]
+[[ "$(xray_output_field privatekey <<<"$intermediate_output")" == "middle-private" ]]
+[[ "$(xray_output_field password <<<"$intermediate_output")" == "middle-password" ]]
+[[ "$(xray_output_field privatekey <<<"$current_output")" == "current-private" ]]
+[[ "$(xray_output_field password <<<"$current_output")" == "current-password" ]]
+[[ "$(xray_output_field publickey <<<"$current_output")" == "current-password" ]]
+grep -q '^PROJECT_VERSION=2.0.3-dev
+grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
+! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"
+! grep -q 'install_ws(){' "$SCRIPT"
+! grep -q '80 端口占用，未做任何 kill' "$SCRIPT"
+! grep -q 'menu(){' "$SCRIPT"
+! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
+echo "Static checks passed."
+ "$SCRIPT"
+grep -q 'v$PROJECT_VERSION' "$SCRIPT"
+! grep -q '^VERSION=' "$SCRIPT"
 grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
 ! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"
 ! grep -q 'install_ws(){' "$SCRIPT"

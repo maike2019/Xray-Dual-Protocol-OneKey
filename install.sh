@@ -440,16 +440,17 @@ show_install_status(){
 
 install_one(){
   local label="$1" tag="$2" fn="$3" tmp link
+  INSTALL_MODE=1
+  INSTALL_CURRENT="$label"
   if has "$tag"; then
     if jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
       inbound_health "$tag" || die "$label：配置记录存在，但 Xray/Nginx 服务未通过运行状态检查；请先排查服务，不会重复安装"
       echo "[跳过] $label：Xray 入站和所需服务均正常"
+      INSTALL_CURRENT=""
       return 0
     fi
     die "$label：发现状态记录，但 Xray 入站不存在。为避免覆盖或误判，已停止；请先查看配置状态并处理异常记录"
   fi
-  INSTALL_MODE=1
-  INSTALL_CURRENT="$label"
   echo
   echo "================================================"
   echo "正在安装：$label"

@@ -160,6 +160,48 @@ init_v2(){
 has(){ jq -e --arg t "$1" '.inbounds[$t]' "$STATE_FILE" >/dev/null 2>&1; }
 state_add(){ local t="$1" r="$2" f; f=$(mktemp); jq --arg t "$t" --argjson r "$r" '.inbounds[$t]=$r' "$STATE_FILE" >"$f"; install -m 600 "$f" "$STATE_FILE"; rm -f "$f"; }
 state_del(){ local t="$1" f; f=$(mktemp); jq --arg t "$t" 'del(.inbounds[$t])' "$STATE_FILE" >"$f"; install -m 600 "$f" "$STATE_FILE"; rm -f "$f"; }
+make_saved_link(){
+  local t="$1" id path port sni sid pbk domain ip encoded
+  id=$(jq -r --arg t "$t" '.inbounds[$t].uuid // ""' "$STATE_FILE")
+  path=$(jq -r --arg t "$t" '.inbounds[$t].path // ""' "$STATE_FILE")
+  port=$(jq -r --arg t "$t" '.inbounds[$t].port // ""' "$STATE_FILE")
+  sni=$(jq -r --arg t "$t" '.inbounds[$t].sni // ""' "$STATE_FILE")
+  sid=$(jq -r --arg t "$t" '.inbounds[$t].sid // ""' "$STATE_FILE")
+  pbk=$(jq -r --arg t "$t" '.inbounds[$t].pbk // ""' "$STATE_FILE")
+  domain=$(jq -r '.domain // ""' "$STATE_FILE")
+  encoded=$(jq -rn --arg p "$path" '$p|@uri')
+  case "$t" in
+    ws-nginx)
+      printf 'vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s#WS-TLS-Nginx\n' "$id" "$domain" "$domain" "$encoded";;
+    tcp-reality-vision)
+      ip=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+      printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp#TCP-REALITY-Vision\n' "$id" "$ip" "$port" "$sni" "$pbk" "$sid";;
+    tcp-tls-vision)
+      printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=tls&type=tcp&sni=%s#TCP-TLS-Vision\n' "$id" "$domain" "$port" "$domain";;
+    tcp-tls)
+      printf 'vless://%s@%s:%s?encryption=none&security=tls&type=tcp&sni=%s#TCP-TLS\n' "$id" "$domain" "$port" "$domain";;
+    xhttp-reality)
+      ip=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+      printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=xhttp&path=%s&mode=auto#XHTTP-REALITY\n' "$id" "$ip" "$port" "$sni" "$pbk" "$sid" "$encoded";;
+    xhttp-tls)
+      printf 'vless://%s@%s:%s?encryption=none&security=tls&type=xhttp&sni=%s&alpn=h2&path=%s&mode=auto#XHTTP-TLS\n' "$id" "$domain" "$port" "$domain" "$encoded";;
+    xhttp-nginx)
+      printf 'vless://%s@%s:443?encryption=none&security=tls&type=xhttp&host=%s&path=%s&mode=stream-one#XHTTP-TLS-Nginx\n' "$id" "$domain" "$domain" "$encoded";;
+    *) return 1;;
+  esac
+}
+refresh_saved_links(){
+  local t link f
+  for t in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhttp-tls xhttp-nginx; do
+    has "$t" || continue
+    [[ -n "$(jq -r --arg t "$t" '.inbounds[$t].link // ""' "$STATE_FILE")" ]] && continue
+    link=$(make_saved_link "$t") || continue
+    f=$(mktemp)
+    jq --arg t "$t" --arg link "$link" '.inbounds[$t].link=$link' "$STATE_FILE" >"$f"
+    install -m 600 "$f" "$STATE_FILE"
+    rm -f "$f"
+  done
+}
 inbound_add(){ local t="$1" i="$2"; jq --arg t "$t" --argjson i "$i" '.inbounds=((.inbounds//[])|map(select(.tag!=$t)))+[$i]' "$CONF" | apply_config; }
 inbound_del(){ jq --arg t "$1" '.inbounds=((.inbounds//[])|map(select(.tag!=$t)))' "$CONF" | apply_config; }
 domain_tls(){
@@ -474,5 +516,6 @@ menu_v2(){
 init_v2
 install_deps
 install_xray
+refresh_saved_links
 menu_v2
 

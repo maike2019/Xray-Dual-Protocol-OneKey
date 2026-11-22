@@ -2,7 +2,7 @@
 # Derived from wulabing/Xray_onekey; MIT License.
 set -Eeuo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-PROJECT_VERSION=2.0.3-dev
+PROJECT_VERSION=2.0.4-dev
 XRAY_DIR=/usr/local/etc/xray
 CONF=$XRAY_DIR/config.json
 NGINX=/etc/nginx/conf.d/xray-dual.conf
@@ -321,29 +321,153 @@ show_v2(){
   jq -r '.inbounds|to_entries[]|[.key,(.value.port//"-"|tostring),(.value.path//"-")]|@tsv' "$STATE_FILE"
   jq -r '.inbounds[]?|[.tag,.listen//"0.0.0.0",(.port//"unix"),.streamSettings.network//"tcp",.streamSettings.security//"none"]|@tsv' "$CONF"
 }
-all_v2(){
-  has ws-nginx || add_ws2
-  has tcp-reality-vision || add_direct2 reality
-  has tcp-tls-vision || add_direct2 tlsvision
-  has tcp-tls || add_direct2 tls
-  has xhttp-reality || add_direct2 xreality
-  has xhttp-tls || add_direct2 xtls
-  has xhttp-nginx || add_xhttp_nginx2
+# Interactive installation UX: one inbound at a time, verified before advancing.
+INSTALL_MODE=0
+INSTALL_CURRENT=""
+declare -a INSTALL_OK_LABELS=()
+declare -a INSTALL_OK_TAGS=()
+declare -a INSTALL_OK_LINKS=()
+install_summary(){
+  local rc="$1" i tag link label
+  [[ "$INSTALL_MODE" == 1 ]] || return 0
+  echo
+  echo "================ 安装结果汇总 ================"
+  if (( rc == 0 )); then
+    echo "[完成] 本次安装流程已结束"
+  else
+    echo "[中断] 安装在「${INSTALL_CURRENT:-未知步骤}」处失败；后续项目未继续执行"
+  fi
+  if (("${#INSTALL_OK_LABELS[@]}" > 0)); then
+    echo
+    echo "本次成功安装的配置及客户端链接："
+    for i in "${!INSTALL_OK_LABELS[@]}"; do
+      printf '\n[%s] %s\n%s\n' "$((i+1))" "${INSTALL_OK_LABELS[$i]}" "${INSTALL_OK_LINKS[$i]}"
+    done
+  fi
+  echo
+  echo "当前服务器已登记的配置状态："
+  for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhttp-tls xhttp-nginx; do
+    if has "$tag"; then
+      link=$(jq -r --arg t "$tag" '.inbounds[$t].link // ""' "$STATE_FILE" 2>/dev/null || true)
+      if [[ -n "$link" ]]; then printf '  [已安装] %s\n' "$tag"; else printf '  [需检查] %s（状态存在，但未保存链接或安装未完整验收）\n' "$tag"; fi
+    else
+      printf '  [未安装] %s\n' "$tag"
+    fi
+  done
+  echo "================================================"
 }
+trap 'install_summary "$?"' EXIT
+
+show_install_status(){
+  local -a tags=(ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhttp-tls xhttp-nginx)
+  local -a labels=("WS + TLS + Nginx" "TCP + REALITY + Vision" "TCP + TLS + Vision" "TCP + TLS" "XHTTP + REALITY" "XHTTP + TLS" "XHTTP + TLS + Nginx")
+  local i tag
+  echo "---------------- 当前安装状态 ----------------"
+  for i in "${!tags[@]}"; do
+    tag="${tags[$i]}"
+    if has "$tag"; then
+      if jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
+        printf '  [已登记] %s\n' "${labels[$i]}"
+      else
+        printf '  [异常]   %s（状态记录与 Xray 配置不一致）\n' "${labels[$i]}"
+      fi
+    else
+      printf '  [未安装] %s\n' "${labels[$i]}"
+    fi
+  done
+  echo "------------------------------------------------"
+}
+
+install_one(){
+  local label="$1" tag="$2" fn="$3" tmp link
+  if has "$tag"; then
+    echo "[跳过] $label：检测到已安装记录"
+    return 0
+  fi
+  INSTALL_MODE=1
+  INSTALL_CURRENT="$label"
+  echo
+  echo "================================================"
+  echo "正在安装：$label"
+  echo "配置标识：$tag"
+  echo "================================================"
+  tmp=$(mktemp)
+  echo "[步骤 1/3] 执行 $label 安装与配置写入"
+  if "$fn" 2>&1 | tee "$tmp"; then
+    :
+  else
+    rm -f "$tmp"
+    echo "[失败] $label 安装命令返回错误" >&2
+    return 1
+  fi
+  echo "[步骤 2/3] 验证 Xray 配置及服务状态"
+  xray run -test -config "$CONF" >/dev/null || { rm -f "$tmp"; echo "[失败] Xray 配置校验未通过" >&2; return 1; }
+  systemctl is-active --quiet xray || { rm -f "$tmp"; echo "[失败] Xray 服务未处于 active 状态" >&2; return 1; }
+  if [[ "$tag" == ws-nginx || "$tag" == xhttp-nginx ]]; then
+    nginx -t >/dev/null || { rm -f "$tmp"; echo "[失败] Nginx 配置校验未通过" >&2; return 1; }
+    systemctl is-active --quiet nginx || { rm -f "$tmp"; echo "[失败] Nginx 服务未处于 active 状态" >&2; return 1; }
+  fi
+  echo "[步骤 3/3] 检查安装状态并保存客户端链接"
+  has "$tag" || { rm -f "$tmp"; echo "[失败] 未发现预期的安装状态记录" >&2; return 1; }
+  link=$(grep -E '^vless://' "$tmp" | tail -n 1 || true)
+  rm -f "$tmp"
+  [[ -n "$link" ]] || { echo "[失败] 未生成 VLESS 客户端链接" >&2; return 1; }
+  local state_tmp
+  state_tmp=$(mktemp)
+  jq --arg t "$tag" --arg link "$link" '.inbounds[$t].link=$link' "$STATE_FILE" >"$state_tmp"
+  install -m 600 "$state_tmp" "$STATE_FILE"
+  rm -f "$state_tmp"
+  INSTALL_OK_LABELS+=("$label")
+  INSTALL_OK_TAGS+=("$tag")
+  INSTALL_OK_LINKS+=("$link")
+  INSTALL_CURRENT=""
+  echo "[成功] $label 已安装并通过基础验收"
+}
+
+all_v2(){
+  install_one "1/7  VLESS + WS + TLS + Nginx" ws-nginx add_ws2
+  install_one "2/7  VLESS + TCP + REALITY + Vision" tcp-reality-vision add_direct2_reality
+  install_one "3/7  VLESS + TCP + TLS + Vision" tcp-tls-vision add_direct2_tlsvision
+  install_one "4/7  VLESS + TCP + TLS" tcp-tls add_direct2_tls
+  install_one "5/7  VLESS + XHTTP + REALITY" xhttp-reality add_direct2_xreality
+  install_one "6/7  VLESS + XHTTP + TLS" xhttp-tls add_direct2_xtls
+  install_one "7/7  VLESS + XHTTP + TLS + Nginx" xhttp-nginx add_xhttp_nginx2
+}
+# Adapters keep each installation function's original parameters explicit.
+add_direct2_reality(){ add_direct2 reality; }
+add_direct2_tlsvision(){ add_direct2 tlsvision; }
+add_direct2_tls(){ add_direct2 tls; }
+add_direct2_xreality(){ add_direct2 xreality; }
+add_direct2_xtls(){ add_direct2 xtls; }
+
 menu_v2(){
   echo "Xray Dual Protocol OneKey v$PROJECT_VERSION"
-  echo '1 WS+TLS+Nginx  2 TCP+REALITY+Vision  3 TCP+TLS+Vision  4 TCP+TLS'
-  echo '5 XHTTP+REALITY  6 XHTTP+TLS  7 XHTTP+TLS+Nginx  8 安装全部七种'
+  show_install_status
+  echo '1 安装 WS+TLS+Nginx'
+  echo '2 安装 TCP+REALITY+Vision'
+  echo '3 安装 TCP+TLS+Vision'
+  echo '4 安装 TCP+TLS'
+  echo '5 安装 XHTTP+REALITY'
+  echo '6 安装 XHTTP+TLS'
+  echo '7 安装 XHTTP+TLS+Nginx'
+  echo '8 按顺序安装全部七种（每项验收通过后才进入下一项）'
   echo '9 查看配置  10 卸载单项  11 证书状态  0 退出'
   read -rp '选择: ' n
   case "$n" in
-    1) add_ws2;; 2) add_direct2 reality;; 3) add_direct2 tlsvision;; 4) add_direct2 tls;;
-    5) add_direct2 xreality;; 6) add_direct2 xtls;; 7) add_xhttp_nginx2;; 8) all_v2;;
+    1) install_one "VLESS + WS + TLS + Nginx" ws-nginx add_ws2;;
+    2) install_one "VLESS + TCP + REALITY + Vision" tcp-reality-vision add_direct2_reality;;
+    3) install_one "VLESS + TCP + TLS + Vision" tcp-tls-vision add_direct2_tlsvision;;
+    4) install_one "VLESS + TCP + TLS" tcp-tls add_direct2_tls;;
+    5) install_one "VLESS + XHTTP + REALITY" xhttp-reality add_direct2_xreality;;
+    6) install_one "VLESS + XHTTP + TLS" xhttp-tls add_direct2_xtls;;
+    7) install_one "VLESS + XHTTP + TLS + Nginx" xhttp-nginx add_xhttp_nginx2;;
+    8) all_v2;;
     9) show_v2;;
     10) echo '1 WS-Nginx 2 TCP-REALITY-Vision 3 TCP-TLS-Vision 4 TCP-TLS 5 XHTTP-REALITY 6 XHTTP-TLS 7 XHTTP-Nginx'; read -rp '编号: ' r
       case "$r" in 1) remove_v2 ws-nginx;; 2) remove_v2 tcp-reality-vision;; 3) remove_v2 tcp-tls-vision;; 4) remove_v2 tcp-tls;; 5) remove_v2 xhttp-reality;; 6) remove_v2 xhttp-tls;; 7) remove_v2 xhttp-nginx;; *) die '无效选项';; esac;;
     11) "$HOME/.acme.sh/acme.sh" --list 2>/dev/null||true; openssl x509 -in "$CERT" -noout -dates 2>/dev/null||true;;
-    0) exit 0;; *) die '无效选项';;
+    0) exit 0;;
+    *) die '无效选项';;
   esac
 }
 init_v2

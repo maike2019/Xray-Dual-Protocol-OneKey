@@ -2,7 +2,7 @@
 # Derived from wulabing/Xray_onekey; MIT License.
 set -Eeuo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-PROJECT_VERSION=2.0.4-dev
+PROJECT_VERSION=2.0.5-dev
 XRAY_DIR=/usr/local/etc/xray
 CONF=$XRAY_DIR/config.json
 NGINX=/etc/nginx/conf.d/xray-dual.conf
@@ -21,16 +21,29 @@ backup(){ [[ -e "$1" ]] && cp -a "$1" "$1.bak.$(date +%Y%m%d%H%M%S)"; }
 valid_port(){ [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1>=1 && 10#$1<=65535)); }
 xray_test(){ xray run -test -config "$CONF"; }
 apply_config(){
-  local t b
+  local t b stamp
   t=$(mktemp "$XRAY_DIR/config.XXXXXX")
-  cat >"$t"; jq empty "$t" || { rm -f "$t"; die "JSON 无效"; }
-  backup "$CONF"; install -m 600 "$t" "$CONF"; rm -f "$t"
-  if ! xray_test; then
-    b=$(ls -1t "$CONF".bak.* 2>/dev/null | head -1 || true)
-    [[ -n "$b" ]] && cp -a "$b" "$CONF"
-    die "Xray 测试失败，已尝试回滚"
+  cat >"$t"
+  if ! jq empty "$t" >/dev/null 2>&1; then
+    rm -f "$t"
+    die "新生成的 Xray JSON 无效，原配置未修改"
   fi
-  systemctl restart xray
+  stamp=$(date +%Y%m%d%H%M%S)
+  b="$CONF.bak.$stamp"
+  cp -a "$CONF" "$b"
+  install -m 600 "$t" "$CONF"
+  rm -f "$t"
+  if ! xray_test; then
+    cp -a "$b" "$CONF"
+    xray_test >/dev/null 2>&1 || true
+    die "Xray 配置测试失败，已恢复原配置（备份：$b）"
+  fi
+  if ! systemctl restart xray || ! systemctl is-active --quiet xray; then
+    cp -a "$b" "$CONF"
+    xray_test >/dev/null 2>&1 || true
+    systemctl restart xray >/dev/null 2>&1 || true
+    die "Xray 重启/运行检查失败，已恢复原配置并尝试恢复旧服务（备份：$b）"
+  fi
 }
 install_deps(){
   . /etc/os-release
@@ -272,10 +285,23 @@ EOF
     fi
     echo ' location / { return 404; }' >>"$t"; echo '}' >>"$t"
   fi
-  [[ -e "$NGINX" ]] && cp -a "$NGINX" "$NGINX.bak.$(date +%Y%m%d%H%M%S)"
-  install -m 644 "$t" "$NGINX"; rm -f "$t"
-  nginx -t || die "Nginx 配置测试失败，旧配置备份已保留"
-  systemctl reload nginx
+  local nginx_backup=""
+  if [[ -e "$NGINX" ]]; then
+    nginx_backup="$NGINX.bak.$(date +%Y%m%d%H%M%S)"
+    cp -a "$NGINX" "$nginx_backup"
+  fi
+  install -m 644 "$t" "$NGINX"
+  rm -f "$t"
+  if ! nginx -t >/dev/null 2>&1; then
+    if [[ -n "$nginx_backup" ]]; then cp -a "$nginx_backup" "$NGINX"; else rm -f "$NGINX"; fi
+    nginx -t >/dev/null 2>&1 || true
+    die "新 Nginx 配置测试失败，已恢复原项目配置"
+  fi
+  if ! systemctl reload nginx; then
+    if [[ -n "$nginx_backup" ]]; then cp -a "$nginx_backup" "$NGINX"; else rm -f "$NGINX"; fi
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+    die "Nginx 重载失败，已恢复原项目配置并尝试恢复旧服务"
+  fi
 }
 check_443(){
   local lines processes

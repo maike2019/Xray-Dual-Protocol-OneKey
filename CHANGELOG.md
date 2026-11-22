@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.3-dev] - 2026-11-22 — Xray 26.x 密钥标签与项目版本号修复
+
+### Fixed
+- 兼容 Xray 26.x 的真实输出标签 `Password (PublicKey):`，将其正确识别为 REALITY 客户端公钥。
+- 项目版本号改用独立变量 `PROJECT_VERSION`，避免 source `/etc/os-release` 后被 Ubuntu 的系统 `VERSION` 覆盖，菜单不再误显示成 Ubuntu 版本号。
+- 静态测试覆盖旧版、中间版及 Xray 26.x 三种 x25519 输出格式。
+
+### Docs
+- 补充 REALITY target 选择注意事项：不能仅凭 H2、TLS 1.3、X25519 三项判断，需检查目标 IP/ASN 和回落行为；Cloudflare CDN 不作为优先 target。
+
+### Validation
+- GitHub Actions Bash 语法与静态检查通过后再用于测试环境；仍需 VPS 实测密钥生成、Xray 配置加载与客户端连通。
+
 ## [2.0.2-dev] - 2026-11-22 — REALITY 密钥解析与输入提示修复
 
 ### Fixed

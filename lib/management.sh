@@ -24,7 +24,7 @@ mgr_select(){
    if has "${MGR_TAGS[$i]}"; then printf '%d. %s [已安装]\n' "$((i+1))" "${MGR_NAMES[$i]}"
    else printf '%d. %s [未安装]\n' "$((i+1))" "${MGR_NAMES[$i]}"; fi
  done
- read -rp "选择配置（1-7，0 返回）: " MGR_CHOICE
+ read -rp "请输入配置编号（1-7）；输入 0 返回： " MGR_CHOICE
  [[ "$MGR_CHOICE" == 0 ]] && return 1
  [[ "$MGR_CHOICE" =~ ^[1-7]$ ]] || { echo "编号无效"; return 1; }
  MGR_INDEX=$((MGR_CHOICE-1)); MGR_TAG="${MGR_TAGS[$MGR_INDEX]}"; MGR_NAME="${MGR_NAMES[$MGR_INDEX]}"
@@ -232,12 +232,12 @@ mgr_modify(){
   4)
    [[ "$tag" == tcp-reality-vision || "$tag" == xhttp-reality ]] || { rm -f "$tmp" "$st"; echo "此配置不是 REALITY"; return 1; }
    ui_title "========== 修改 REALITY 伪装参数 =========="
-   ui_info "填写真实可访问、支持 HTTPS 的目标网站域名；不是 VPS 域名。示例：www.calstatela.edu"
-   ask_input dest "新的伪装目标网站域名" "只填写域名或 IP，不要带 :端口。" ""
+   ui_info "伪装域名是一个真实可访问、支持 HTTPS 的网站；不是你的 VPS 域名。示例：www.microsoft.com"
+   ask_input dest "新的伪装域名" "只填写网站域名，不要填写 https:// 或端口。" ""
    [[ "$dest" =~ ^[A-Za-z0-9.-]+$ && "$dest" != .* && "$dest" != *. && "$dest" != *..* ]] || { rm -f "$tmp" "$st"; ui_error "伪装目标域名格式无效"; return 1; }
-   ask_input dp "目标网站端口" "通常为 443；直接回车采用默认端口。" "443"
+   ask_input dp "目标网站端口" "通常为 443；直接回车使用默认端口。" "443"
    valid_port "$dp" || { rm -f "$tmp" "$st"; ui_error "目标网站端口无效"; return 1; }
-   ask_input sni "TLS 握手使用的域名" "通常与伪装目标域名相同；直接回车采用上面的域名。" "$dest"
+   ask_input sni "客户端握手域名" "通常与伪装域名相同；直接回车即可使用上面的域名。" "$dest"
    [[ "$sni" =~ ^[A-Za-z0-9.-]+$ && "$sni" != .* && "$sni" != *. && "$sni" != *..* ]] || { rm -f "$tmp" "$st"; ui_error "TLS 握手域名格式无效"; return 1; }
    jq --arg t "$tag" --arg d "$dest:$dp" --arg s "$sni" '.inbounds|=map(if .tag==$t then (.streamSettings.realitySettings.dest=$d | .streamSettings.realitySettings.serverNames=[$s]) else . end)' "$CONF" >"$tmp"
    jq --arg t "$tag" --arg d "$dest" --arg s "$sni" --argjson dp "$dp" '.inbounds[$t].dest=$d|.inbounds[$t].dest_port=$dp|.inbounds[$t].sni=$s|.inbounds[$t].link=""' "$STATE_FILE" >"$st"
@@ -272,7 +272,7 @@ menu_v2(){
  local c
  while true; do
   clear 2>/dev/null || true; ui_title "Xray Dual Protocol OneKey"; ui_info "版本：$PROJECT_VERSION"; mgr_status
-  ui_title "========== 配置安装 =========="; echo "1. 安装单项配置"; echo "2. 按顺序安装全部七种"
+  ui_title "========== 配置安装 =========="; ui_info "安装前请确认域名已解析，所需端口已在 VPS 防火墙和云安全组放行"; echo "1. 安装单项配置"; echo "2. 按顺序安装全部七种"
   echo; ui_title "========== 配置管理 =========="; echo "3. 查看所有配置"; echo "4. 修改已有配置"; echo "5. 卸载单项配置"; echo "6. 输出客户端链接"; echo "7. 显示二维码"
   echo; ui_title "========== 服务管理 =========="; echo "8. 启动 / 停止 / 重启"; echo "9. 查看运行日志"; echo "10. 配置健康检查"
   echo; ui_title "========== 证书与备份 =========="; echo "11. 证书状态与续期检查"; echo "12. 备份配置"; echo "13. 恢复配置"; echo; echo "0. 退出"

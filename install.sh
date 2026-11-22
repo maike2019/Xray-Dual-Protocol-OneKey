@@ -114,12 +114,33 @@ acme_setup(){
  "$HOOK"
 }
 new_uuid(){ cat /proc/sys/kernel/random/uuid; }
+# Extract Xray CLI fields across both legacy and current x25519 output labels.
+# Examples supported: "Private key:" / "Public key:" and "PrivateKey:" / "Password:".
+xray_output_field(){
+ local wanted="$1"
+ awk -F: -v wanted="$wanted" '
+   NF >= 2 {
+     label=tolower($1)
+     gsub(/[[:space:]_]/, "", label)
+     if (label == wanted) {
+       value=substr($0, index($0, ":")+1)
+       sub(/^[[:space:]]+/, "", value)
+       sub(/[[:space:]\r]+$/, "", value)
+       print value
+       exit
+     }
+   }'
+}
 reality_keys(){
- local o
- o=$(xray x25519 2>&1) || die "xray x25519 失败：$o"
- R_PRIV=$(awk -F ': *' '/PrivateKey:/ {print $2;exit}' <<<"$o")
- R_PUB=$(awk -F ': *' '/Password:/ {print $2;exit}' <<<"$o")
- [[ -n "$R_PRIV" && -n "$R_PUB" ]] || die "无法识别 xray x25519 输出，停止以避免写入空密钥"
+ local o xver
+ o=$(xray x25519 2>&1) || die "xray x25519 命令执行失败；请先运行 xray version 检查 Xray 安装"
+ R_PRIV=$(xray_output_field privatekey <<<"$o")
+ R_PUB=$(xray_output_field password <<<"$o")
+ [[ -n "$R_PUB" ]] || R_PUB=$(xray_output_field publickey <<<"$o")
+ if [[ -z "$R_PRIV" || -z "$R_PUB" ]]; then
+   xver=$(xray version 2>/dev/null | head -n 1 || true)
+   die "无法识别 xray x25519 输出格式（${xver:-Xray 版本未知}）。已支持 Private key/Public key 和 PrivateKey/Password 两种格式；为避免写入空密钥，已停止。请勿公开完整 xray x25519 输出，因为其中包含服务端私钥"
+ fi
 }
 # Multi-inbound 2.x manager. Each tag is independently installed/removed.
 STATE_FILE="$STATE/state.json"
@@ -252,14 +273,20 @@ add_direct2(){
   esac
   has "$tag" && die "$tag 已安装"
   [[ "$sec" == tls ]] && domain_tls
-  read -rp "监听端口 [$def]: " p; [[ -n "$p" ]] || p="$def"
+  read -rp "本机监听端口 [$def]（客户端连接 VPS 时使用的端口）: " p; [[ -n "$p" ]] || p="$def"
   [[ "$p" =~ ^[0-9]+$ ]] && ((p>0&&p<65536)) || die "端口无效"
   ! ss -H -lnt "( sport = :$p )" 2>/dev/null|grep -q . || die "端口 $p 已占用"
   id=$(new_uuid); path="/$(openssl rand -hex 12)/"
   if [[ "$sec" == reality ]]; then
-    local dest dp sni sid; read -rp "REALITY dest 域名: " dest
-    read -rp "dest 端口 [443]: " dp; [[ -n "$dp" ]] || dp=443
-    read -rp "SNI [$dest]: " sni; [[ -n "$sni" ]] || sni="$dest"
+    local dest dp sni sid
+    read -rp "REALITY dest 主机名（只填域名/IP，不含端口，例如 www.calstatela.edu）: " dest
+    [[ "$dest" =~ ^[A-Za-z0-9.-]+$ && "$dest" != .* && "$dest" != *. && "$dest" != *..* ]] ||
+      die "dest 格式无效：这里只填主机名，不要填写 :端口；端口会在下一步单独输入"
+    read -rp "dest 端口 [443]（目标网站端口，通常为 443）: " dp; dp=${dp:-443}
+    valid_port "$dp" || die "dest 端口无效，请输入 1–65535 的数字"
+    read -rp "SNI [$dest]（留空则使用 dest 主机名）: " sni; sni=${sni:-$dest}
+    [[ "$sni" =~ ^[A-Za-z0-9.-]+$ && "$sni" != .* && "$sni" != *. && "$sni" != *..* ]] ||
+      die "SNI 格式无效：这里只填写主机名，不要添加端口"
     sid=$(openssl rand -hex 8); reality_keys
     ib=$(jq -n --arg id "$id" --argjson p "$p" --arg net "$net" --arg path "$path" --arg dest "$dest:$dp" --arg sni "$sni" --arg sid "$sid" --arg pk "$R_PRIV" --arg flow "$flow" --arg tag "$tag" '{tag:$tag,listen:"0.0.0.0",port:$p,protocol:"vless",settings:{clients:([{id:$id}]|if $flow!="" then .[0].flow=$flow else . end),decryption:"none"},streamSettings:({network:$net,security:"reality",realitySettings:{show:false,dest:$dest,xver:0,serverNames:[$sni],privateKey:$pk,shortIds:[$sid]}}+(if $net=="xhttp" then {xhttpSettings:{mode:"auto",path:$path}} else {} end))}')
     rec=$(jq -n --arg id "$id" --arg path "$path" --arg sni "$sni" --arg sid "$sid" --arg pbk "$R_PUB" --argjson p "$p" '{uuid:$id,path:$path,port:$p,sni:$sni,sid:$sid,pbk:$pbk}')

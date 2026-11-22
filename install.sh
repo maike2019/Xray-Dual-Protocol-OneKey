@@ -158,6 +158,14 @@ init_v2(){
   if [[ ! -s "$CONF" ]]; then printf '%s\n' '{"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct","settings":{}},{"protocol":"blackhole","tag":"blocked","settings":{}}],"routing":{"rules":[]}}' >"$CONF"; fi
 }
 has(){ jq -e --arg t "$1" '.inbounds[$t]' "$STATE_FILE" >/dev/null 2>&1; }
+inbound_health(){
+  local t="$1"
+  systemctl is-active --quiet xray || return 1
+  if [[ "$t" == ws-nginx || "$t" == xhttp-nginx ]]; then
+    nginx -t >/dev/null 2>&1 || return 1
+    systemctl is-active --quiet nginx || return 1
+  fi
+}
 state_add(){ local t="$1" r="$2" f; f=$(mktemp); jq --arg t "$t" --argjson r "$r" '.inbounds[$t]=$r' "$STATE_FILE" >"$f"; install -m 600 "$f" "$STATE_FILE"; rm -f "$f"; }
 state_del(){ local t="$1" f; f=$(mktemp); jq --arg t "$t" 'del(.inbounds[$t])' "$STATE_FILE" >"$f"; install -m 600 "$f" "$STATE_FILE"; rm -f "$f"; }
 make_saved_link(){
@@ -393,8 +401,10 @@ install_summary(){
       link=$(jq -r --arg t "$tag" '.inbounds[$t].link // ""' "$STATE_FILE" 2>/dev/null || true)
       if ! jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
         printf '  [异常] %s（状态记录存在，但 Xray 入站缺失）\n' "$tag"
+      elif ! inbound_health "$tag"; then
+        printf '  [服务异常] %s（Xray 或该模式依赖的 Nginx 未正常运行）\n' "$tag"
       elif [[ -n "$link" ]]; then
-        printf '\n  [已配置] %s\n  %s\n' "$tag" "$link"
+        printf '\n  [已运行] %s\n  %s\n' "$tag" "$link"
       else
         printf '  [需检查] %s（配置存在，但客户端链接缺失）\n' "$tag"
       fi
@@ -414,10 +424,12 @@ show_install_status(){
   for i in "${!tags[@]}"; do
     tag="${tags[$i]}"
     if has "$tag"; then
-      if jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
-        printf '  [已登记] %s\n' "${labels[$i]}"
-      else
+      if ! jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
         printf '  [异常]   %s（状态记录与 Xray 配置不一致）\n' "${labels[$i]}"
+      elif inbound_health "$tag"; then
+        printf '  [已运行] %s\n' "${labels[$i]}"
+      else
+        printf '  [服务异常] %s（Xray 或该模式依赖的 Nginx 未正常运行）\n' "${labels[$i]}"
       fi
     else
       printf '  [未安装] %s\n' "${labels[$i]}"
@@ -430,7 +442,8 @@ install_one(){
   local label="$1" tag="$2" fn="$3" tmp link
   if has "$tag"; then
     if jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
-      echo "[跳过] $label：状态记录和 Xray 入站均存在"
+      inbound_health "$tag" || die "$label：配置记录存在，但 Xray/Nginx 服务未通过运行状态检查；请先排查服务，不会重复安装"
+      echo "[跳过] $label：Xray 入站和所需服务均正常"
       return 0
     fi
     die "$label：发现状态记录，但 Xray 入站不存在。为避免覆盖或误判，已停止；请先查看配置状态并处理异常记录"

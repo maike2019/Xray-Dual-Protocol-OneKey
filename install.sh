@@ -397,7 +397,7 @@ install_one(){
   echo "================================================"
   tmp=$(mktemp)
   echo "[步骤 1/3] 执行 $label 安装与配置写入（实时显示执行日志）"
-  exec 3> >(tee "$tmp")
+  exec 3> >(tee "$tmp" | sed '/^vless:\/\//d')
   INSTALL_TEE_PID=$!
   "$fn" >&3 2>&1
   exec 3>&-

@@ -572,21 +572,25 @@ install_one(){
   echo "配置标识：$tag"
   echo "================================================"
   tmp=$(mktemp)
-  echo "[步骤 1/3] 执行 $label 安装与配置写入（实时显示执行日志）"
-  exec 3> >(tee "$tmp" | sed '/^vless:\/\//d')
+  echo "[进行中] 步骤 1/3：执行 $label 安装与配置写入（日志实时显示；交互提示直接显示在终端）"
+  exec 3> >(tee "$tmp" | sed -u '/^vless:\/\//d')
   INSTALL_TEE_PID=$!
-  "$fn" >&3 2>&1
+  # Only redirect stdout through the log pipeline. Keep stderr attached to
+  # the terminal so read -rp prompts and actionable errors remain visible.
+  "$fn" >&3
   exec 3>&-
   wait "$INSTALL_TEE_PID" || true
   INSTALL_TEE_PID=""
-  echo "[步骤 2/3] 验证 Xray 配置及服务状态"
+  echo "[完成] 步骤 1/3：安装函数已返回"
+  echo "[进行中] 步骤 2/3：验证 Xray 配置及服务状态"
   xray run -test -config "$CONF" >/dev/null || { rm -f "$tmp"; echo "[失败] Xray 配置校验未通过" >&2; return 1; }
   systemctl is-active --quiet xray || { rm -f "$tmp"; echo "[失败] Xray 服务未处于 active 状态" >&2; return 1; }
   if [[ "$tag" == ws-nginx || "$tag" == xhttp-nginx ]]; then
     nginx -t >/dev/null || { rm -f "$tmp"; echo "[失败] Nginx 配置校验未通过" >&2; return 1; }
     systemctl is-active --quiet nginx || { rm -f "$tmp"; echo "[失败] Nginx 服务未处于 active 状态" >&2; return 1; }
   fi
-  echo "[步骤 3/3] 检查安装状态并保存客户端链接"
+  echo "[完成] 步骤 2/3：Xray 配置及服务状态验证通过"
+  echo "[进行中] 步骤 3/3：检查安装状态并保存客户端链接"
   has "$tag" || { rm -f "$tmp"; echo "[失败] 未发现预期的安装状态记录" >&2; return 1; }
   link=$(grep -E '^vless://' "$tmp" | tail -n 1 || true)
   rm -f "$tmp"
@@ -598,6 +602,7 @@ install_one(){
   rm -f "$state_tmp"
   INSTALL_OK_LABELS+=("$label")
   INSTALL_CURRENT=""
+  echo "[完成] 步骤 3/3：安装状态和客户端链接已保存"
   echo "[成功] $label 已安装并通过基础验收"
 }
 

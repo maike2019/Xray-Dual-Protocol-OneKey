@@ -1,14 +1,21 @@
-## Configuration rollback protection (2.0.5-dev)
+## 版本更新摘要
 
-Xray configuration changes are backed up before activation. If Xray validation, restart, or active-state checks fail, the previous configuration is restored and the old service is restarted when possible. Failed Nginx aggregate validation or reload also triggers restoration of the previous project configuration. These recovery paths still require fault-injection testing on a disposable VPS.
+### 2.0.5-dev：配置变更失败回滚保护
 
-## Installation flow (2.0.4-dev)
+- 修改 Xray 配置前先备份原配置。
+- 新配置需通过 JSON 格式和 Xray 配置测试后才会应用。
+- 如果配置测试、Xray 重启或服务运行状态检查失败，脚本会恢复原配置，并尝试重新启动旧服务。
+- Nginx 聚合配置测试或重载失败时，会恢复之前的项目配置，并尝试重新加载旧配置。
+- **验证边界：**上述回滚逻辑仍需在隔离测试 VPS 上进行故障注入验证；静态检查不能代替真实服务恢复测试。
 
-- The menu shows the registered state of all seven inbound modes before installation.
-- “Install all seven” processes configurations sequentially. The next mode starts only after the current mode passes Xray configuration and service checks.
-- Nginx-fronted WS/XHTTP modes also require a valid Nginx configuration and active Nginx service.
-- Installation logs stream while each mode is running. Successful client links are saved and all saved links are printed together at the end; a failure stops subsequent installation and prints the partial result.
-- These checks validate server-side configuration and service state; client connectivity still needs to be tested from a client application.
+### 2.0.4-dev：安装进度、状态识别与链接汇总
+
+- 主菜单顶部显示七种入站配置的登记和运行状态。
+- 选择“按顺序安装全部七种”后，脚本按 1/7 至 7/7 逐项安装；当前项目通过基础检查后才会继续下一项。
+- 每项安装后检查 Xray 配置和服务状态；WS+Nginx、XHTTP+Nginx 还会检查 Nginx 配置和服务状态。
+- 安装日志实时显示，成功生成的客户端链接会保存，并在流程结束时统一汇总。
+- 任一项目失败时停止后续安装，同时显示已完成项目、当前状态和已保存的链接。
+- **验证边界：**这些检查属于服务端基础验收，不代表客户端已经成功连接；仍需在客户端导入链接并进行实际连通测试。
 
 # Xray-Dual-Protocol-OneKey
 
@@ -30,6 +37,40 @@ Xray configuration changes are backed up before activation. If Xray validation, 
 - 提供逐项安装、七项批量安装、查看配置、逐项卸载和分享链接输出。
 - TLS 入站共用一个项目域名和 ACME 证书；续期使用统一 hook。
 - 端口占用只报告，不自动 kill 进程；更新 Xray 配置前备份并执行配置测试。
+
+## 脚本菜单结构
+
+启动脚本后进入交互式主菜单。菜单会先显示七种配置的当前状态，再提供以下操作：
+
+```text
+Xray Dual Protocol OneKey
+│
+├─ 当前配置状态
+│  ├─ [已运行]      配置记录与服务检查均正常
+│  ├─ [未安装]      尚未登记该入站
+│  ├─ [服务异常]    配置存在，但 Xray 或所需的 Nginx 服务异常
+│  └─ [异常]        状态记录与 Xray 入站配置不一致
+│
+├─ 1. 安装 VLESS + WS + TLS + Nginx
+├─ 2. 安装 VLESS + TCP + REALITY + Vision
+├─ 3. 安装 VLESS + TCP + TLS + Vision
+├─ 4. 安装 VLESS + TCP + TLS
+├─ 5. 安装 VLESS + XHTTP + REALITY
+├─ 6. 安装 VLESS + XHTTP + TLS
+├─ 7. 安装 VLESS + XHTTP + TLS + Nginx
+├─ 8. 按顺序安装全部七种
+│  ├─ 依次执行 1/7 至 7/7
+│  ├─ 每项安装后进行服务端基础检查
+│  ├─ 当前项失败则停止后续安装
+│  └─ 结束时汇总配置状态和已保存的客户端链接
+├─ 9. 查看配置
+├─ 10. 卸载单项
+│  └─ 选择要卸载的入站编号（1—7）
+├─ 11. 查看证书状态
+└─ 0. 退出
+```
+
+**说明：**菜单中的“已运行”是脚本依据配置记录、Xray/Nginx 配置检查及服务状态作出的基础判断，不等同于从外部网络完成客户端连接测试。卸载某一种 Nginx 前置入站时，脚本设计为保留另一种入站的独立路由。
 
 ## 环境要求
 

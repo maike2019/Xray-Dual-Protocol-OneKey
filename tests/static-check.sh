@@ -12,9 +12,6 @@ done
 grep -q 'grpc_pass unix:' "$SCRIPT"
 grep -q 'RuntimeDirectory=xray-dual' "$SCRIPT"
 grep -q 'nginx_aggregate' "$SCRIPT"
-grep -q 'Xray 重启/运行检查失败，已恢复原配置' "$SCRIPT"
-grep -q '新 Nginx 配置测试失败，已恢复原项目配置' "$SCRIPT"
-grep -q 'Nginx 重载失败，已恢复原项目配置' "$SCRIPT"
 grep -q '安装全部七种' "$SCRIPT"
 grep -q 'show_install_status' "$SCRIPT"
 grep -q 'install_summary' "$SCRIPT"
@@ -36,6 +33,11 @@ grep -q 'xray_output_field publickey' "$SCRIPT"
 grep -q 'REALITY dest 主机名（只填域名/IP，不含端口' "$SCRIPT"
 grep -Fq 'dest 端口 [443]' "$SCRIPT"
 
+# Verify transactional rollback guards are present.
+grep -q 'Xray 重启/运行检查失败，已恢复原配置' "$SCRIPT"
+grep -q '新 Nginx 配置测试失败，已恢复原项目配置' "$SCRIPT"
+grep -q 'Nginx 重载失败，已恢复原项目配置' "$SCRIPT"
+
 # Exercise legacy, intermediate, and current Xray x25519 output labels.
 eval "$(sed -n '/^xray_output_field(){/,/^}/p' "$SCRIPT")"
 legacy_output=$(printf '%s\n' 'Private key: legacy-private' 'Public key: legacy-public')
@@ -50,18 +52,7 @@ current_output=$(printf '%s\n' 'PrivateKey: current-private' 'Password (PublicKe
 [[ "$(xray_output_field password <<<"$current_output")" == "current-password" ]]
 [[ "$(xray_output_field publickey <<<"$current_output")" == "current-password" ]]
 
-grep -q '^PROJECT_VERSION=2.0.5-dev
-grep -q 'v$PROJECT_VERSION' "$SCRIPT"
-! grep -q '^VERSION=' "$SCRIPT"
-grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
-! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"
-! grep -q 'install_ws(){' "$SCRIPT"
-! grep -q '80 端口占用，未做任何 kill' "$SCRIPT"
-! grep -q 'menu(){' "$SCRIPT"
-! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
-
-echo "Static checks passed."
- "$SCRIPT"
+grep -q '^PROJECT_VERSION=2.0.5-dev$' "$SCRIPT"
 grep -q 'v$PROJECT_VERSION' "$SCRIPT"
 ! grep -q '^VERSION=' "$SCRIPT"
 grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"

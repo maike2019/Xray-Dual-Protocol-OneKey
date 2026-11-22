@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.0-dev] - 2026-11-22 — 交互式管理面板与运维功能
+
+### Added
+- 新增持续运行的 13 项主菜单：安装、配置查看/修改/卸载、客户端链接/二维码、服务管理、日志、健康检查、证书续期检查、备份和恢复。
+- 新增独立的 `lib/management.sh` 管理模块。
+- 配置编辑支持 UUID、TCP 端口、WS/XHTTP 路径、REALITY dest/SNI 和 REALITY 密钥/Short ID 更新。
+- 增加项目配置备份、SHA256 校验、恢复前快照、配置检查和失败回滚尝试。
+
+### Fixed
+- Xray 状态文件更新采用临时文件校验后原子替换。
+- WS-Nginx、XHTTP-Nginx 的安装/卸载和路径编辑增加 Xray、状态文件、Nginx 聚合配置及 systemd drop-in 的跨组件回滚。
+- 直连入站安装增加 Xray 配置与状态文件事务保护。
+- 证书缺失且仍登记 Nginx 前置入站时，停止自动覆盖项目 Nginx 配置，避免破坏既有路由。
+
+### Known limitations
+- 暂不提供 TLS 域名迁移、证书私钥轮换、XHTTP-Nginx Socket 路径编辑。
+- 备份恢复仅覆盖项目管理文件，不包括整个系统、防火墙/云安全组或 acme.sh 账户目录。
+- GitHub Actions 静态检查不等于 VPS 故障注入、自动续期或客户端互通验收。
+
+### Validation
+- GitHub Actions Bash syntax and project static checks are required for this commit.
+- Multi-inbound install/uninstall, Nginx route preservation, backup restoration and rollback still require isolated VPS fault-injection tests.
+
 ## [2.0.5-dev] - 2026-11-22 — Xray/Nginx 变更事务回滚增强
 
 ### Fixed

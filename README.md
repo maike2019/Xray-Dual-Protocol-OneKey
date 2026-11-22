@@ -1,3 +1,11 @@
+## Installation flow (2.0.4-dev)
+
+- The menu shows the registered state of all seven inbound modes before installation.
+- “Install all seven” processes configurations sequentially. The next mode starts only after the current mode passes Xray configuration and service checks.
+- Nginx-fronted WS/XHTTP modes also require a valid Nginx configuration and active Nginx service.
+- Installation logs stream while each mode is running. Successful client links are saved and all saved links are printed together at the end; a failure stops subsequent installation and prints the partial result.
+- These checks validate server-side configuration and service state; client connectivity still needs to be tested from a client application.
+
 # Xray-Dual-Protocol-OneKey
 
 一个基于 [wulabing/Xray_onekey](https://github.com/wulabing/Xray_onekey) 衍生的多入站安装与管理项目，支持七种 VLESS 传输/安全组合，可在同一台 VPS 上独立安装并共存。

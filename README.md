@@ -1,3 +1,7 @@
+## Configuration rollback protection (2.0.5-dev)
+
+Xray configuration changes are backed up before activation. If Xray validation, restart, or active-state checks fail, the previous configuration is restored and the old service is restarted when possible. Failed Nginx aggregate validation or reload also triggers restoration of the previous project configuration. These recovery paths still require fault-injection testing on a disposable VPS.
+
 ## Installation flow (2.0.4-dev)
 
 - The menu shows the registered state of all seven inbound modes before installation.

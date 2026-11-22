@@ -53,12 +53,21 @@ mgr_list(){
 }
 mgr_links(){
  local t
- for t in "${MGR_TAGS[@]}"; do has "$t" || continue; echo "[$t]"; make_saved_link "$t" || echo "链接生成失败"; done
+ for t in "${MGR_TAGS[@]}"; do
+   has "$t" || continue
+   if ! jq -e --arg t "$t" '.inbounds[]?|select(.tag==$t)' "$CONF" >/dev/null 2>&1; then echo "[$t] 状态异常：Xray 入站缺失"; continue; fi
+   echo "[$t]"; make_saved_link "$t" || echo "链接生成失败"
+ done
 }
 mgr_qr(){
  command -v qrencode >/dev/null || { echo "请安装 qrencode"; return 1; }
  local t l
- for t in "${MGR_TAGS[@]}"; do has "$t" || continue; l=$(make_saved_link "$t") || continue; echo "[$t]"; qrencode -t ANSIUTF8 -m 1 "$l"; done
+ for t in "${MGR_TAGS[@]}"; do
+   has "$t" || continue
+   jq -e --arg t "$t" '.inbounds[]?|select(.tag==$t)' "$CONF" >/dev/null 2>&1 || { echo "[$t] 状态异常，跳过"; continue; }
+   l=$(make_saved_link "$t") || { echo "[$t] 链接生成失败"; continue; }
+   echo "[$t]"; qrencode -t ANSIUTF8 -m 1 "$l"
+ done
 }
 mgr_services(){
  local s a u v; local -a units=()
@@ -78,15 +87,37 @@ mgr_logs(){
  journalctl -u "$u" -n "$n" --no-pager
 }
 mgr_health(){
- local bad=0 t p
- xray run -test -config "$CONF" >/dev/null && echo "[通过] Xray 配置" || { echo "[失败] Xray 配置"; ((bad+=1)); }
- systemctl is-active --quiet xray && echo "[通过] Xray 服务" || { echo "[失败] Xray 服务"; ((bad+=1)); }
- nginx -t >/dev/null 2>&1 && echo "[通过] Nginx 配置" || { echo "[失败] Nginx 配置"; ((bad+=1)); }
- if has ws-nginx || has xhttp-nginx; then systemctl is-active --quiet nginx || { echo "[失败] Nginx 服务"; ((bad+=1)); }; fi
- for t in "${MGR_TAGS[@]}"; do has "$t" || continue; jq -e --arg t "$t" '.inbounds[]?|select(.tag==$t)' "$CONF" >/dev/null && echo "[通过] $t 入站" || { echo "[失败] $t 状态/入站不一致"; ((bad+=1)); }; done
- if has ws-nginx; then p=$(jq -r '.inbounds["ws-nginx"].path//""' "$STATE_FILE"); grep -Fq "location = $p" "$NGINX" || { echo "[失败] WS 路由缺失"; ((bad+=1)); }; fi
- if has xhttp-nginx; then p=$(jq -r '.inbounds["xhttp-nginx"].path//""' "$STATE_FILE"); grep -Fq "location ^~ $p" "$NGINX" || { echo "[失败] XHTTP 路由缺失"; ((bad+=1)); }; fi
- echo "健康检查结束，问题数：$bad"; return "$((bad>0))"
+ local bad=0 t p domain
+ echo "========== 配置健康检查 =========="
+ if jq -e '.inbounds|type=="object"' "$STATE_FILE" >/dev/null 2>&1; then echo "[通过] 项目状态 JSON"; else echo "[失败] 项目状态 JSON"; ((bad+=1)); fi
+ if xray run -test -config "$CONF" >/dev/null 2>&1; then echo "[通过] Xray 配置语法"; else echo "[失败] Xray 配置语法"; ((bad+=1)); fi
+ if systemctl is-active --quiet xray; then echo "[通过] Xray 服务运行"; else echo "[失败] Xray 服务未运行"; ((bad+=1)); fi
+ if nginx -t >/dev/null 2>&1; then echo "[通过] Nginx 配置语法"; else echo "[失败] Nginx 配置语法"; ((bad+=1)); fi
+ if has ws-nginx || has xhttp-nginx; then
+   if systemctl is-active --quiet nginx; then echo "[通过] Nginx 前置服务运行"; else echo "[失败] Nginx 前置服务未运行"; ((bad+=1)); fi
+ fi
+ domain=$(jq -r '.domain // ""' "$STATE_FILE")
+ if [[ -n "$domain" && ( -s "$CERT" ) ]]; then
+   if openssl x509 -in "$CERT" -noout -checkhost "$domain" >/dev/null 2>&1 && openssl x509 -in "$CERT" -noout -checkend 0 >/dev/null 2>&1; then echo "[通过] TLS 证书匹配域名且未过期"; else echo "[失败] TLS 证书不匹配或已过期"; ((bad+=1)); fi
+ elif [[ -n "$domain" ]]; then echo "[失败] 状态中记录域名但证书缺失"; ((bad+=1)); fi
+ for t in "${MGR_TAGS[@]}"; do
+   if has "$t"; then
+     if jq -e --arg t "$t" '.inbounds[]?|select(.tag==$t)' "$CONF" >/dev/null 2>&1; then echo "[通过] $t 入站存在"; else echo "[失败] $t 状态记录与 Xray 入站不一致"; ((bad+=1)); fi
+   fi
+ done
+ if has ws-nginx; then
+   p=$(jq -r '.inbounds["ws-nginx"].path // ""' "$STATE_FILE")
+   if [[ -n "$p" ]] && grep -Fq "location = $p" "$NGINX"; then echo "[通过] WS Nginx 路由"; else echo "[失败] WS Nginx 路由缺失"; ((bad+=1)); fi
+ fi
+ if has xhttp-nginx; then
+   p=$(jq -r '.inbounds["xhttp-nginx"].path // ""' "$STATE_FILE")
+   if [[ -n "$p" ]] && grep -Fq "location ^~ $p" "$NGINX"; then echo "[通过] XHTTP Nginx 路由"; else echo "[失败] XHTTP Nginx 路由缺失"; ((bad+=1)); fi
+   if [[ -S "$SOCKET" ]]; then echo "[通过] XHTTP Unix Socket 存在"; else echo "[失败] XHTTP Unix Socket 不存在"; ((bad+=1)); fi
+ fi
+ echo "健康检查结束，问题数：$bad"
+ echo "注意：该检查是本机配置/服务检查，不代表公网链路或客户端握手成功"
+ echo "=================================="
+ return "$((bad>0))"
 }
 mgr_cert(){
  local ac="$HOME/.acme.sh/acme.sh" ans

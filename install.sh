@@ -2,7 +2,7 @@
 # Derived from wulabing/Xray_onekey; MIT License.
 set -Eeuo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-PROJECT_VERSION=2.0.5-dev
+PROJECT_VERSION=2.1.0-dev
 XRAY_DIR=/usr/local/etc/xray
 CONF=$XRAY_DIR/config.json
 NGINX=/etc/nginx/conf.d/xray-dual.conf
@@ -26,7 +26,8 @@ apply_config(){
   cat >"$t"
   if ! jq empty "$t" >/dev/null 2>&1; then
     rm -f "$t"
-    die "新生成的 Xray JSON 无效，原配置未修改"
+    echo "[ERROR] 新生成的 Xray JSON 无效，原配置未修改" >&2
+    return 1
   fi
   stamp=$(date +%Y%m%d%H%M%S)
   b="$CONF.bak.$stamp"
@@ -36,20 +37,22 @@ apply_config(){
   if ! xray_test; then
     cp -a "$b" "$CONF"
     xray_test >/dev/null 2>&1 || true
-    die "Xray 配置测试失败，已恢复原配置（备份：$b）"
+    echo "[ERROR] Xray 配置测试失败，已恢复原配置（备份：$b）" >&2
+    return 1
   fi
   if ! systemctl restart xray || ! systemctl is-active --quiet xray; then
     cp -a "$b" "$CONF"
     xray_test >/dev/null 2>&1 || true
     systemctl restart xray >/dev/null 2>&1 || true
-    die "Xray 重启/运行检查失败，已恢复原配置并尝试恢复旧服务（备份：$b）"
+    echo "[ERROR] Xray 重启/运行检查失败，已恢复原配置并尝试恢复旧服务（备份：$b）" >&2
+    return 1
   fi
 }
 install_deps(){
   . /etc/os-release
   [[ "$ID" == debian || "$ID" == ubuntu ]] || die "首版仅支持 Debian/Ubuntu"
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget ca-certificates jq nginx cron openssl iproute2
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget ca-certificates jq nginx cron openssl iproute2 qrencode
   systemctl enable --now cron 2>/dev/null || true
   mkdir -p "$XRAY_DIR" "$(dirname "$NGINX")" "$WEBROOT" "$CERTDIR" "$STATE"
 }
@@ -562,5 +565,11 @@ init_v2
 install_deps
 install_xray
 refresh_saved_links
+# Load the versioned management panel shipped alongside this installer.
+MANAGEMENT_LIB=/usr/local/lib/xray-dual-protocol/management.sh
+mkdir -p "$(dirname "$MANAGEMENT_LIB")"
+curl -fsSL --retry 3 "https://raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/feature/seven-inbound-modes/lib/management.sh" -o "$MANAGEMENT_LIB"
+chmod 600 "$MANAGEMENT_LIB"
+source "$MANAGEMENT_LIB"
 menu_v2
 

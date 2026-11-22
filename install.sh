@@ -324,12 +324,18 @@ show_v2(){
 # Interactive installation UX: one inbound at a time, verified before advancing.
 INSTALL_MODE=0
 INSTALL_CURRENT=""
+INSTALL_TEE_PID=""
 declare -a INSTALL_OK_LABELS=()
 declare -a INSTALL_OK_TAGS=()
 declare -a INSTALL_OK_LINKS=()
 install_summary(){
   local rc="$1" i tag link label
   [[ "$INSTALL_MODE" == 1 ]] || return 0
+  if [[ -n "$INSTALL_TEE_PID" ]]; then
+    exec 3>&- || true
+    wait "$INSTALL_TEE_PID" || true
+    INSTALL_TEE_PID=""
+  fi
   echo
   echo "================ 安装结果汇总 ================"
   if (( rc == 0 )); then
@@ -392,15 +398,13 @@ install_one(){
   echo "配置标识：$tag"
   echo "================================================"
   tmp=$(mktemp)
-  echo "[步骤 1/3] 执行 $label 安装与配置写入"
-  if "$fn" >"$tmp" 2>&1; then
-    cat "$tmp"
-  else
-    cat "$tmp" >&2 || true
-    rm -f "$tmp"
-    echo "[失败] $label 安装命令返回错误" >&2
-    return 1
-  fi
+  echo "[步骤 1/3] 执行 $label 安装与配置写入（实时显示执行日志）"
+  exec 3> >(tee "$tmp")
+  INSTALL_TEE_PID=$!
+  "$fn" >&3 2>&1
+  exec 3>&-
+  wait "$INSTALL_TEE_PID" || true
+  INSTALL_TEE_PID=""
   echo "[步骤 2/3] 验证 Xray 配置及服务状态"
   xray run -test -config "$CONF" >/dev/null || { rm -f "$tmp"; echo "[失败] Xray 配置校验未通过" >&2; return 1; }
   systemctl is-active --quiet xray || { rm -f "$tmp"; echo "[失败] Xray 服务未处于 active 状态" >&2; return 1; }

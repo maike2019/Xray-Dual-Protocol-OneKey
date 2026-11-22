@@ -142,8 +142,8 @@ cat >"$HOOK" <<'HOOK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 u=$(systemctl show xray -p User --value 2>/dev/null || true)
-[[ -n "$u" ]] || u=nobody
-id "$u" >/dev/null 2>&1 || u=nobody
+[[ -n "$u" ]] || u=root
+id "$u" >/dev/null 2>&1 || u=root
 g=$(id -gn "$u")
 chown "$u:$g" /ssl /ssl/xray.crt /ssl/xray.key
 chmod 750 /ssl

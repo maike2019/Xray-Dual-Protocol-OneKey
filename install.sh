@@ -393,9 +393,10 @@ install_one(){
   echo "================================================"
   tmp=$(mktemp)
   echo "[步骤 1/3] 执行 $label 安装与配置写入"
-  if "$fn" 2>&1 | tee "$tmp"; then
-    :
+  if "$fn" >"$tmp" 2>&1; then
+    cat "$tmp"
   else
+    cat "$tmp" >&2 || true
     rm -f "$tmp"
     echo "[失败] $label 安装命令返回错误" >&2
     return 1

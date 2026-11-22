@@ -7,11 +7,16 @@ MGR_NAMES=("WS + TLS + Nginx" "TCP + REALITY + Vision" "TCP + TLS + Vision" "TCP
 mgr_status(){
  local n=0 t
  for t in "${MGR_TAGS[@]}"; do has "$t" && ((n+=1)); done
- echo "========== 服务状态 =========="
- systemctl is-active --quiet xray && echo "Xray       : 运行正常" || echo "Xray       : 未运行/异常"
- systemctl is-active --quiet nginx && echo "Nginx      : 运行正常" || echo "Nginx      : 未运行/异常"
- if [[ -s "$CERT" ]] && openssl x509 -in "$CERT" -noout -checkend 0 >/dev/null 2>&1; then echo "TLS 证书   : 有效"; else echo "TLS 证书   : 未安装/无效"; fi
- echo "已安装配置 : $n / 7"; echo "=============================="
+ ui_title "========== 服务状态 =========="
+ systemctl is-active --quiet xray && ui_ok "Xray 服务运行正常" || ui_error "Xray 服务未运行/异常"
+ if has ws-nginx || has xhttp-nginx; then
+   systemctl is-active --quiet nginx && ui_ok "Nginx 服务运行正常" || ui_error "Nginx 服务未运行/异常"
+ else
+   systemctl is-active --quiet nginx && ui_info "Nginx 已运行（当前配置不依赖它）" || ui_info "Nginx 未运行（当前配置不依赖它）"
+ fi
+ if [[ -s "$CERT" ]] && openssl x509 -in "$CERT" -noout -checkend 0 >/dev/null 2>&1; then ui_ok "TLS 证书有效"; else ui_warn "TLS 证书未安装或无效"; fi
+ ui_info "已安装配置：$n / 7"
+ ui_title "=============================="
 }
 mgr_select(){
  local i
@@ -120,9 +125,29 @@ mgr_health(){
  return "$((bad>0))"
 }
 mgr_cert(){
- local ac="$HOME/.acme.sh/acme.sh" ans
- if [[ -s "$CERT" ]]; then openssl x509 -in "$CERT" -noout -subject -issuer -dates; openssl x509 -in "$CERT" -noout -checkend 2592000 >/dev/null && echo "证书有效期超过 30 天" || echo "证书将在 30 天内到期或已过期"; else echo "证书不存在"; fi
- if [[ -x "$ac" ]]; then "$ac" --list || true; crontab -l 2>/dev/null|grep -F acme.sh || echo "未发现 acme.sh cron"; read -rp "执行一次续期检查？[y/N] " ans; [[ "$ans" == [yY] ]] && "$ac" --cron --home "$HOME/.acme.sh"; else echo "未找到 acme.sh"; fi
+ local ac="$HOME/.acme.sh/acme.sh" ans cron_entry
+ ui_title "========== TLS 证书与自动续期检查 =========="
+ if [[ -s "$CERT" ]]; then
+   openssl x509 -in "$CERT" -noout -subject -issuer -dates
+   if openssl x509 -in "$CERT" -noout -checkend 2592000 >/dev/null 2>&1; then ui_ok "证书当前有效，且剩余时间超过 30 天"
+   elif openssl x509 -in "$CERT" -noout -checkend 0 >/dev/null 2>&1; then ui_warn "证书仍有效，但将在 30 天内到期"
+   else ui_error "证书已过期或无法读取"; fi
+ else ui_error "证书文件不存在"; fi
+ if [[ -x "$ac" ]]; then
+   ui_title "---- acme.sh 证书登记 ----"
+   "$ac" --list || ui_warn "读取 acme.sh 证书列表失败"
+   cron_entry=$(crontab -l 2>/dev/null | grep -F 'acme.sh' || true)
+   if [[ -n "$cron_entry" ]]; then ui_ok "检测到 acme.sh 定时任务"; else ui_error "未在当前 root 用户 crontab 中发现 acme.sh 定时任务"; fi
+   if systemctl is-active --quiet cron; then ui_ok "cron 服务正在运行"; else ui_error "cron 服务未运行"; fi
+   if [[ -x "$HOOK" ]]; then ui_ok "证书更新 Hook 存在且可执行"; else ui_error "证书更新 Hook 缺失或不可执行"; fi
+   ui_warn "以上检查只能确认定时任务和 Hook 的配置状态，不能证明 CA 已成功完成过自动续期。"
+   read -rp "现在执行一次 acme.sh 到期检查？[y/N] " ans
+   if [[ "$ans" == [yY] ]]; then
+     if "$ac" --cron --home "$HOME/.acme.sh"; then ui_ok "acme.sh 检查命令执行完成；请结合日志确认是否发生续期及 Hook 执行结果"
+     else ui_error "acme.sh 检查失败，请查看输出和日志"; fi
+   fi
+ else ui_error "未找到 root 用户目录下的 acme.sh"; fi
+ ui_title "============================================"
 }
 mgr_backup(){
  local f stamp p; mkdir -p "$MGR_BACKUPS"; chmod 700 "$MGR_BACKUPS"
@@ -206,11 +231,14 @@ mgr_modify(){
    ;;
   4)
    [[ "$tag" == tcp-reality-vision || "$tag" == xhttp-reality ]] || { rm -f "$tmp" "$st"; echo "此配置不是 REALITY"; return 1; }
-   read -rp "新的 REALITY dest 主机名（不含端口）: " dest
-   [[ "$dest" =~ ^[A-Za-z0-9.-]+$ && "$dest" != .* && "$dest" != *. && "$dest" != *..* ]] || { rm -f "$tmp" "$st"; echo "dest 格式无效"; return 1; }
-   read -rp "dest 端口 [443]: " dp; dp=${dp:-443}; valid_port "$dp" || { rm -f "$tmp" "$st"; echo "dest 端口无效"; return 1; }
-   read -rp "SNI [$dest]: " sni; sni=${sni:-$dest}
-   [[ "$sni" =~ ^[A-Za-z0-9.-]+$ && "$sni" != .* && "$sni" != *. && "$sni" != *..* ]] || { rm -f "$tmp" "$st"; echo "SNI 格式无效"; return 1; }
+   ui_title "========== 修改 REALITY 伪装参数 =========="
+   ui_info "填写真实可访问、支持 HTTPS 的目标网站域名；不是 VPS 域名。示例：www.calstatela.edu"
+   ask_input dest "新的伪装目标网站域名" "只填写域名或 IP，不要带 :端口。" ""
+   [[ "$dest" =~ ^[A-Za-z0-9.-]+$ && "$dest" != .* && "$dest" != *. && "$dest" != *..* ]] || { rm -f "$tmp" "$st"; ui_error "伪装目标域名格式无效"; return 1; }
+   ask_input dp "目标网站端口" "通常为 443；直接回车采用默认端口。" "443"
+   valid_port "$dp" || { rm -f "$tmp" "$st"; ui_error "目标网站端口无效"; return 1; }
+   ask_input sni "TLS 握手使用的域名" "通常与伪装目标域名相同；直接回车采用上面的域名。" "$dest"
+   [[ "$sni" =~ ^[A-Za-z0-9.-]+$ && "$sni" != .* && "$sni" != *. && "$sni" != *..* ]] || { rm -f "$tmp" "$st"; ui_error "TLS 握手域名格式无效"; return 1; }
    jq --arg t "$tag" --arg d "$dest:$dp" --arg s "$sni" '.inbounds|=map(if .tag==$t then (.streamSettings.realitySettings.dest=$d | .streamSettings.realitySettings.serverNames=[$s]) else . end)' "$CONF" >"$tmp"
    jq --arg t "$tag" --arg d "$dest" --arg s "$sni" --argjson dp "$dp" '.inbounds[$t].dest=$d|.inbounds[$t].dest_port=$dp|.inbounds[$t].sni=$s|.inbounds[$t].link=""' "$STATE_FILE" >"$st"
    ;;
@@ -243,11 +271,11 @@ mgr_remove(){
 menu_v2(){
  local c
  while true; do
-  clear 2>/dev/null || true; echo "Xray Dual Protocol OneKey"; echo "版本：$PROJECT_VERSION"; mgr_status
-  echo "========== 配置安装 =========="; echo "1. 安装单项配置"; echo "2. 按顺序安装全部七种"
-  echo; echo "========== 配置管理 =========="; echo "3. 查看所有配置"; echo "4. 修改已有配置"; echo "5. 卸载单项配置"; echo "6. 输出客户端链接"; echo "7. 显示二维码"
-  echo; echo "========== 服务管理 =========="; echo "8. 启动 / 停止 / 重启"; echo "9. 查看运行日志"; echo "10. 配置健康检查"
-  echo; echo "========== 证书与备份 =========="; echo "11. 证书状态与续期检查"; echo "12. 备份配置"; echo "13. 恢复配置"; echo; echo "0. 退出"
+  clear 2>/dev/null || true; ui_title "Xray Dual Protocol OneKey"; ui_info "版本：$PROJECT_VERSION"; mgr_status
+  ui_title "========== 配置安装 =========="; echo "1. 安装单项配置"; echo "2. 按顺序安装全部七种"
+  echo; ui_title "========== 配置管理 =========="; echo "3. 查看所有配置"; echo "4. 修改已有配置"; echo "5. 卸载单项配置"; echo "6. 输出客户端链接"; echo "7. 显示二维码"
+  echo; ui_title "========== 服务管理 =========="; echo "8. 启动 / 停止 / 重启"; echo "9. 查看运行日志"; echo "10. 配置健康检查"
+  echo; ui_title "========== 证书与备份 =========="; echo "11. 证书状态与续期检查"; echo "12. 备份配置"; echo "13. 恢复配置"; echo; echo "0. 退出"
   read -rp "请选择操作: " c
   case "$c" in 1) mgr_install;; 2) all_v2;; 3) mgr_list;; 4) mgr_modify;; 5) mgr_remove;; 6) mgr_links;; 7) mgr_qr;; 8) mgr_services;; 9) mgr_logs;; 10) mgr_health;; 11) mgr_cert;; 12) mgr_backup;; 13) mgr_restore;; 0) echo "退出管理菜单"; return 0;; *) echo "无效选项";; esac
   echo; read -rp "按回车返回主菜单..." _

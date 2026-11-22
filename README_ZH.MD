@@ -69,9 +69,19 @@ wget -N -O install.sh "https://raw.githubusercontent.com/maike2019/Xray-Dual-Pro
 
 ## REALITY 参数说明
 
-- TCP REALITY + Vision 默认监听端口为 `8443`；XHTTP + REALITY 默认端口为 `8446`。
-- `dest` 是服务端握手目标，格式为域名和端口，例如 `www.example.com:443`。
-- `serverNames` 是允许的 SNI 名称；首版交互支持单项输入。
+- TCP REALITY + Vision 默认本机监听端口为 `8443`；XHTTP + REALITY 默认本机监听端口为 `8446`。这是客户端连接 VPS 时使用的端口。
+- `dest` 只填写目标主机名，不要带端口，例如 `www.calstatela.edu`。下一步单独询问目标端口，默认 `443`，两项组合后才是 `www.calstatela.edu:443`。
+- `SNI` 只填写主机名，默认沿用 dest；通常应与目标站点证书接受的名称相符。
+- REALITY 参数输入示例（按提示逐项输入）：
+
+  ```text
+  本机监听端口 [8443]（客户端连接 VPS 时使用的端口）: [回车，采用 8443]
+  REALITY dest 主机名（只填域名/IP，不含端口）: www.calstatela.edu
+  dest 端口 [443]（目标网站端口，通常为 443）: [回车，采用 443]
+  SNI [www.calstatela.edu]（留空则使用 dest 主机名）: [回车，采用默认值]
+  ```
+
+  因此本例对应：VPS 监听端口 `8443`，REALITY target/dest 为 `www.calstatela.edu:443`，SNI 为 `www.calstatela.edu`。不要把 `:8443` 追加到 dest。
 - Private Key 只保存在服务端；Public Key 和 Short ID 供客户端使用。
 - 只有 TCP + REALITY + Vision 使用 `xtls-rprx-vision`；XHTTP + REALITY 不配置 Vision flow。
 

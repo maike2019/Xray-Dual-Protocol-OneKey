@@ -2,7 +2,7 @@
 # Derived from wulabing/Xray_onekey; MIT License.
 set -Eeuo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-VERSION=2.0.2-dev
+PROJECT_VERSION=2.0.3-dev
 XRAY_DIR=/usr/local/etc/xray
 CONF=$XRAY_DIR/config.json
 NGINX=/etc/nginx/conf.d/xray-dual.conf
@@ -121,8 +121,12 @@ xray_output_field(){
  awk -F: -v wanted="$wanted" '
    NF >= 2 {
      label=tolower($1)
-     gsub(/[[:space:]_]/, "", label)
-     if (label == wanted) {
+     # Remove spaces and punctuation so "Password (PublicKey)" becomes
+     # "passwordpublickey", while accepting the older label variants.
+     gsub(/[^[:alnum:]]/, "", label)
+     if (label == wanted ||
+         (wanted == "password" && label == "passwordpublickey") ||
+         (wanted == "publickey" && label == "passwordpublickey")) {
        value=substr($0, index($0, ":")+1)
        sub(/^[[:space:]]+/, "", value)
        sub(/[[:space:]\r]+$/, "", value)
@@ -139,7 +143,7 @@ reality_keys(){
  [[ -n "$R_PUB" ]] || R_PUB=$(xray_output_field publickey <<<"$o")
  if [[ -z "$R_PRIV" || -z "$R_PUB" ]]; then
    xver=$(xray version 2>/dev/null | head -n 1 || true)
-   die "无法识别 xray x25519 输出格式（${xver:-Xray 版本未知}）。已支持 Private key/Public key 和 PrivateKey/Password 两种格式；为避免写入空密钥，已停止。请勿公开完整 xray x25519 输出，因为其中包含服务端私钥"
+   die "无法识别 xray x25519 输出格式（\${xver:-Xray 版本未知}）。当前解析器兼容 Private key/Public key、PrivateKey/Password，以及 PrivateKey/Password (PublicKey) 格式；为避免写入空密钥，已停止。请勿公开完整 xray x25519 输出，因为其中包含服务端私钥"
  fi
 }
 # Multi-inbound 2.x manager. Each tag is independently installed/removed.
@@ -327,7 +331,7 @@ all_v2(){
   has xhttp-nginx || add_xhttp_nginx2
 }
 menu_v2(){
-  echo "Xray Dual Protocol OneKey v$VERSION"
+  echo "Xray Dual Protocol OneKey v$PROJECT_VERSION"
   echo '1 WS+TLS+Nginx  2 TCP+REALITY+Vision  3 TCP+TLS+Vision  4 TCP+TLS'
   echo '5 XHTTP+REALITY  6 XHTTP+TLS  7 XHTTP+TLS+Nginx  8 安装全部七种'
   echo '9 查看配置  10 卸载单项  11 证书状态  0 退出'

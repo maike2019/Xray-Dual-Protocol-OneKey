@@ -190,6 +190,9 @@ mgr_modify(){
    case "$tag" in ws-nginx|xhttp-reality|xhttp-tls|xhttp-nginx);; *) rm -f "$tmp" "$st"; echo "此传输模式没有可编辑的路径"; return 1;; esac
    read -rp "新的路径（必须以 / 开头）: " value
    [[ "$value" == /* && "$value" != *" "* && "$value" != *"?"* && "$value" != *"#"* ]] || { rm -f "$tmp" "$st"; echo "路径格式无效"; return 1; }
+   if jq -e --arg t "$tag" --arg p "$value" '[.inbounds|to_entries[]|select(.key!=$t and .value.path==$p)]|length>0' "$STATE_FILE" >/dev/null; then
+     rm -f "$tmp" "$st"; echo "该路径已被其他入站使用，请选择不同路径"; return 1
+   fi
    if [[ "$tag" == ws-nginx ]]; then
      jq --arg t "$tag" --arg p "$value" '.inbounds|=map(if .tag==$t then .streamSettings.wsSettings.path=$p else . end)' "$CONF" >"$tmp"
    else

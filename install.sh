@@ -436,7 +436,7 @@ add_direct2(){
       die "SNI 格式无效：这里只填写主机名，不要添加端口"
     sid=$(openssl rand -hex 8); reality_keys
     ib=$(jq -n --arg id "$id" --argjson p "$p" --arg net "$net" --arg path "$path" --arg dest "$dest:$dp" --arg sni "$sni" --arg sid "$sid" --arg pk "$R_PRIV" --arg flow "$flow" --arg tag "$tag" '{tag:$tag,listen:"0.0.0.0",port:$p,protocol:"vless",settings:{clients:([{id:$id}]|if $flow!="" then .[0].flow=$flow else . end),decryption:"none"},streamSettings:({network:$net,security:"reality",realitySettings:{show:false,dest:$dest,xver:0,serverNames:[$sni],privateKey:$pk,shortIds:[$sid]}}+(if $net=="xhttp" then {xhttpSettings:{mode:"auto",path:$path}} else {} end))}')
-    rec=$(jq -n --arg id "$id" --arg path "$path" --arg sni "$sni" --arg sid "$sid" --arg pbk "$R_PUB" --argjson p "$p" '{uuid:$id,path:$path,port:$p,sni:$sni,sid:$sid,pbk:$pbk}')
+    rec=$(jq -n --arg id "$id" --arg path "$path" --arg sni "$sni" --arg sid "$sid" --arg pbk "$R_PUB" --arg dest "$dest" --argjson dp "$dp" --argjson p "$p" '{uuid:$id,path:$path,port:$p,sni:$sni,sid:$sid,pbk:$pbk,dest:$dest,dest_port:$dp}')
   else
     ib=$(jq -n --arg id "$id" --argjson p "$p" --arg net "$net" --arg path "$path" --arg cert "$CERT" --arg key "$KEY" --arg flow "$flow" --arg tag "$tag" '{tag:$tag,listen:"0.0.0.0",port:$p,protocol:"vless",settings:{clients:([{id:$id}]|if $flow!="" then .[0].flow=$flow else . end),decryption:"none"},streamSettings:({network:$net,security:"tls",tlsSettings:({certificates:[{certificateFile:$cert,keyFile:$key}]}+(if $net=="xhttp" then {alpn:["h2"]} else {} end))}+(if $net=="xhttp" then {xhttpSettings:{mode:"auto",path:$path}} else {} end))}')
     rec=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{uuid:$id,path:$path,port:$p}')

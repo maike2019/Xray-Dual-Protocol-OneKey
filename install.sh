@@ -506,18 +506,19 @@ add_direct2(){
   id=$(new_uuid); path="/$(openssl rand -hex 12)/"
   if [[ "$sec" == reality ]]; then
     local dest dp sni sid
-    ui_title "========== REALITY 伪装参数设置 =========="
-    ui_info "填写一个真实可访问、支持 HTTPS 的目标网站；它不是你的 VPS 域名。"
-    ui_info "示例：www.calstatela.edu（仅作格式示例，请选择确认可用的目标网站）"
-    ask_input dest "REALITY 伪装目标网站域名" "只填写域名或 IP，不要带 :端口。" ""
+    ui_title "━━━━━━━━━━━━ REALITY 伪装设置 ━━━━━━━━━━━━"
+    ui_info "伪装域名是一个真实可访问、支持 HTTPS 的网站；不是你的 VPS 域名。"
+    ui_info "填写示例：www.microsoft.com（请自行确认目标站点适合 REALITY）"
+    ask_input dest "伪装域名" "只填写域名，不要填写 https:// 或端口。" ""
     [[ "$dest" =~ ^[A-Za-z0-9.-]+$ && "$dest" != .* && "$dest" != *. && "$dest" != *..* ]] ||
-      die "伪装目标域名格式无效；请只填写主机名，不要填写端口"
-    ask_input dp "目标网站端口" "通常使用 443；直接回车采用默认端口。" "443"
-    valid_port "$dp" || die "目标网站端口无效，请输入 1–65535 的数字"
-    ask_input sni "TLS 握手使用的域名" "通常与上面的伪装目标域名相同；直接回车使用上面的域名。" "$dest"
+      die "伪装域名格式不正确；请只填写网站域名，不要填写端口"
+    ask_input dp "目标网站端口" "通常为 443；直接回车使用默认端口。" "443"
+    valid_port "$dp" || die "端口无效，请输入 1–65535 之间的数字"
+    ask_input sni "客户端握手域名" "通常与伪装域名相同；直接回车即可使用上面的域名。" "$dest"
     [[ "$sni" =~ ^[A-Za-z0-9.-]+$ && "$sni" != .* && "$sni" != *. && "$sni" != *..* ]] ||
-      die "TLS 握手域名格式无效；这里只填写主机名，不要添加端口"
-    ui_info "UUID、REALITY 密钥和 Short ID 将自动生成，无需手动填写。"
+      die "握手域名格式不正确；请只填写域名，不要添加端口"
+    ui_info "UUID、密钥和连接识别码将自动生成，你不需要手动填写。"
+    ui_ok "REALITY 参数输入完成，正在生成连接配置……"
     sid=$(openssl rand -hex 8); reality_keys
     ib=$(jq -n --arg id "$id" --argjson p "$p" --arg net "$net" --arg path "$path" --arg dest "$dest:$dp" --arg sni "$sni" --arg sid "$sid" --arg pk "$R_PRIV" --arg flow "$flow" --arg tag "$tag" '{tag:$tag,listen:"0.0.0.0",port:$p,protocol:"vless",settings:{clients:([{id:$id}]|if $flow!="" then .[0].flow=$flow else . end),decryption:"none"},streamSettings:({network:$net,security:"reality",realitySettings:{show:false,dest:$dest,xver:0,serverNames:[$sni],privateKey:$pk,shortIds:[$sid]}}+(if $net=="xhttp" then {xhttpSettings:{mode:"auto",path:$path}} else {} end))}')
     rec=$(jq -n --arg id "$id" --arg path "$path" --arg sni "$sni" --arg sid "$sid" --arg pbk "$R_PUB" --arg dest "$dest" --argjson dp "$dp" --argjson p "$p" '{uuid:$id,path:$path,port:$p,sni:$sni,sid:$sid,pbk:$pbk,dest:$dest,dest_port:$dp}')

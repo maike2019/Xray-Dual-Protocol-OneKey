@@ -15,7 +15,31 @@ HOOK=/usr/local/sbin/xray-dual-cert-reload
 DEFAULT_REALITY_PORT=8443
 # Consistent terminal colors; disable them automatically in redirected output.
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
-  UI_RESET=
+  UI_RESET="$(printf '\033[0m')"
+  UI_RED="$(printf '\033[31m')"
+  UI_GREEN="$(printf '\033[32m')"
+  UI_YELLOW="$(printf '\033[33m')"
+  UI_BLUE="$(printf '\033[34m')"
+  UI_CYAN="$(printf '\033[36m')"
+else
+  UI_RESET=""; UI_RED=""; UI_GREEN=""; UI_YELLOW=""; UI_BLUE=""; UI_CYAN=""
+fi
+ui_msg(){ local color="$1"; shift; printf '%b%s%b\n' "$color" "$*" "$UI_RESET"; }
+ui_ok(){ ui_msg "$UI_GREEN" "[成功] $*"; }
+ui_info(){ ui_msg "$UI_CYAN" "[提示] $*"; }
+ui_warn(){ ui_msg "$UI_YELLOW" "[注意] $*"; }
+ui_error(){ ui_msg "$UI_RED" "[失败] $*" >&2; }
+ui_title(){ ui_msg "$UI_BLUE" "$*"; }
+ok(){ ui_ok "$*"; }
+die(){ ui_error "$*"; exit 1; }
+ask_input(){
+  local variable="$1" label="$2" explanation="$3" default="${4-}" value
+  printf '%s\n' "$explanation"
+  if [[ -n "$default" ]]; then printf '%s [%s]: ' "$label" "$default"
+  else printf '%s: ' "$label"; fi
+  IFS= read -r value
+  printf -v "$variable" '%s' "${value:-$default}"
+}
 [[ $EUID -eq 0 ]] || die "请以 root 运行"
 backup(){ [[ -e "$1" ]] && cp -a "$1" "$1.bak.$(date +%Y%m%d%H%M%S)"; }
 valid_port(){ [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1>=1 && 10#$1<=65535)); }

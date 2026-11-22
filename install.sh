@@ -391,10 +391,12 @@ install_summary(){
   for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhttp-tls xhttp-nginx; do
     if has "$tag"; then
       link=$(jq -r --arg t "$tag" '.inbounds[$t].link // ""' "$STATE_FILE" 2>/dev/null || true)
-      if [[ -n "$link" ]]; then
-        printf '\n  [已安装] %s\n  %s\n' "$tag" "$link"
+      if ! jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
+        printf '  [异常] %s（状态记录存在，但 Xray 入站缺失）\n' "$tag"
+      elif [[ -n "$link" ]]; then
+        printf '\n  [已配置] %s\n  %s\n' "$tag" "$link"
       else
-        printf '  [需检查] %s（状态存在，但未保存链接或安装未完整验收）\n' "$tag"
+        printf '  [需检查] %s（配置存在，但客户端链接缺失）\n' "$tag"
       fi
     else
       printf '  [未安装] %s\n' "$tag"

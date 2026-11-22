@@ -149,6 +149,10 @@ mgr_restore(){
  read -rp "选择备份（0 返回）: " choice; [[ "$choice" == 0 ]] && return
  [[ "$choice" =~ ^[0-9]+$ ]] && ((choice>0 && choice<=${#files[@]})) || { echo "编号无效"; return 1; }
  selected="${files[$((choice-1))]}"
+ read -rp "恢复将覆盖当前项目配置，是否继续？[y/N] " confirm
+ [[ "$confirm" == [yY] ]] || return 0
+ echo "[安全] 先自动备份当前配置，再执行恢复"
+ mgr_backup || { echo "恢复前自动备份失败，取消恢复"; return 1; }
  (cd "$MGR_BACKUPS" && sha256sum -c "$(basename "$selected").sha256") || return 1
  while IFS= read -r p; do case "$p" in usr/local/etc/xray/config.json|etc/xray-dual-protocol/state.json|etc/nginx/conf.d/xray-dual.conf|ssl/xray.crt|ssl/xray.key|etc/systemd/system/xray.service.d/dual-protocol.conf|usr/local/sbin/xray-dual-cert-reload) ;; *) echo "备份含非预期路径 $p"; return 1;; esac; done < <(tar -tzf "$selected") || return 1
  tmp=$(mktemp -d); old=$(mktemp -d); tar -xzf "$selected" -C "$tmp" || { rm -rf "$tmp" "$old"; return 1; }

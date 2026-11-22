@@ -14,6 +14,19 @@ grep -q 'well-known/acme-challenge' "$SCRIPT"
 grep -q -- '--install-cronjob' "$SCRIPT"
 grep -q 'ensure_nginx_http' "$SCRIPT"
 grep -q 'assert_port_free_or_nginx 80' "$SCRIPT"
+grep -q 'xray_output_field privatekey' "$SCRIPT"
+grep -q 'xray_output_field password' "$SCRIPT"
+grep -q 'xray_output_field publickey' "$SCRIPT"
+grep -q 'REALITY dest 主机名（只填域名/IP，不含端口' "$SCRIPT"
+grep -q 'dest 端口 \\[443\\]' "$SCRIPT"
+# Exercise the parser against both documented Xray output formats.
+eval "$(sed -n '/^xray_output_field(){/,/^}/p' "$SCRIPT")"
+legacy_output=$(printf 'Private key: legacy-private\\nPublic key: legacy-public\\n')
+modern_output=$(printf 'PrivateKey: modern-private\\nPassword: modern-password\\nHash32: ignored-hash\\n')
+[[ "$(xray_output_field privatekey <<<"$legacy_output")" == "legacy-private" ]]
+[[ "$(xray_output_field publickey <<<"$legacy_output")" == "legacy-public" ]]
+[[ "$(xray_output_field privatekey <<<"$modern_output")" == "modern-private" ]]
+[[ "$(xray_output_field password <<<"$modern_output")" == "modern-password" ]]
 grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
 ! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"
 ! grep -q 'install_ws(){' "$SCRIPT"

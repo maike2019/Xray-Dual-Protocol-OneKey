@@ -298,12 +298,14 @@ EOF
   if ! nginx -t >/dev/null 2>&1; then
     if [[ -n "$nginx_backup" ]]; then cp -a "$nginx_backup" "$NGINX"; else rm -f "$NGINX"; fi
     nginx -t >/dev/null 2>&1 || true
-    die "新 Nginx 配置测试失败，已恢复原项目配置"
+    echo "[ERROR] 新 Nginx 配置测试失败，已恢复原项目配置" >&2
+    return 1
   fi
   if ! systemctl reload nginx; then
     if [[ -n "$nginx_backup" ]]; then cp -a "$nginx_backup" "$NGINX"; else rm -f "$NGINX"; fi
     nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
-    die "Nginx 重载失败，已恢复原项目配置并尝试恢复旧服务"
+    echo "[ERROR] Nginx 重载失败，已恢复原项目配置并尝试恢复旧服务" >&2
+    return 1
   fi
 }
 check_443(){
@@ -321,16 +323,53 @@ check_443(){
       die "已有 Nginx 前置入站，但 Nginx 当前未监听 TCP/443"
   fi
 }
+# Cross-component transaction helpers. Snapshot both Xray state and Nginx routes.
+manager_txn_snapshot(){
+  TXN_DIR=$(mktemp -d)
+  cp -a "$CONF" "$TXN_DIR/config.json"
+  cp -a "$STATE_FILE" "$TXN_DIR/state.json"
+  [[ -e "$NGINX" ]] && cp -a "$NGINX" "$TXN_DIR/nginx.conf" || true
+  [[ -e /etc/systemd/system/xray.service.d/dual-protocol.conf ]] && cp -a /etc/systemd/system/xray.service.d/dual-protocol.conf "$TXN_DIR/xray-dropin" || true
+}
+manager_txn_rollback(){
+  cp -a "$TXN_DIR/config.json" "$CONF"
+  cp -a "$TXN_DIR/state.json" "$STATE_FILE"
+  if [[ -e "$TXN_DIR/nginx.conf" ]]; then cp -a "$TXN_DIR/nginx.conf" "$NGINX"; else rm -f "$NGINX"; fi
+  if [[ -e "$TXN_DIR/xray-dropin" ]]; then
+    mkdir -p /etc/systemd/system/xray.service.d
+    cp -a "$TXN_DIR/xray-dropin" /etc/systemd/system/xray.service.d/dual-protocol.conf
+  else rm -f /etc/systemd/system/xray.service.d/dual-protocol.conf; fi
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  xray run -test -config "$CONF" >/dev/null 2>&1 && systemctl restart xray >/dev/null 2>&1 || true
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+  rm -rf "$TXN_DIR"
+}
+manager_txn_commit(){ rm -rf "$TXN_DIR"; }
+
 add_ws2(){
-  has ws-nginx && die "WS-Nginx 已安装"; check_443; domain_tls; check_443
-  local id p path rec ib; id=$(new_uuid); p=$(shuf -i 12000-50000 -n1); path="/$(openssl rand -hex 12)/"
-  rec=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{uuid:$id,path:$path,port:$p}')
-  ib=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{tag:"ws-nginx",listen:"127.0.0.1",port:$p,protocol:"vless",settings:{clients:[{id:$id}],decryption:"none"},streamSettings:{network:"ws",security:"none",wsSettings:{path:$path}}}')
-  inbound_add ws-nginx "$ib"; state_add ws-nginx "$rec"; nginx_aggregate
+  has ws-nginx && die "WS-Nginx 已安装"
+  check_443
+  domain_tls
+  check_443
+  manager_txn_snapshot
+  local id p path rec ib
+  id=$(new_uuid); p=$(shuf -i 12000-50000 -n1); path="/$(openssl rand -hex 12)/"
+  rec=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{uuid:$id,path:$path,port:$p}') || { manager_txn_rollback; return 1; }
+  ib=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{tag:"ws-nginx",listen:"127.0.0.1",port:$p,protocol:"vless",settings:{clients:[{id:$id}],decryption:"none"},streamSettings:{network:"ws",security:"none",wsSettings:{path:$path}}}') || { manager_txn_rollback; return 1; }
+  if ! inbound_add ws-nginx "$ib" || ! state_add ws-nginx "$rec" || ! nginx_aggregate; then
+    manager_txn_rollback
+    echo "[ERROR] WS-Nginx 安装失败，Xray、状态文件和 Nginx 已尝试回滚" >&2
+    return 1
+  fi
+  manager_txn_commit
   echo "vless://$id@$DOMAIN:443?encryption=none&security=tls&type=ws&host=$DOMAIN&path=$(jq -rn --arg p "$path" '$p|@uri')#WS-TLS-Nginx"
 }
 add_xhttp_nginx2(){
-  has xhttp-nginx && die "XHTTP-Nginx 已安装"; check_443; domain_tls; check_443
+  has xhttp-nginx && die "XHTTP-Nginx 已安装"
+  check_443
+  domain_tls
+  check_443
+  manager_txn_snapshot
   mkdir -p /etc/systemd/system/xray.service.d
   cat >/etc/systemd/system/xray.service.d/dual-protocol.conf <<'UNIT'
 [Service]
@@ -338,11 +377,17 @@ Group=www-data
 RuntimeDirectory=xray-dual
 RuntimeDirectoryMode=0770
 UNIT
-  systemctl daemon-reload
-  local id path rec ib; id=$(new_uuid); path="/$(openssl rand -hex 12)/"
-  rec=$(jq -n --arg id "$id" --arg path "$path" '{uuid:$id,path:$path}')
-  ib=$(jq -n --arg id "$id" --arg path "$path" --arg sock "$SOCKET" '{tag:"xhttp-nginx",listen:($sock+",0660"),protocol:"vless",settings:{clients:[{id:$id}],decryption:"none"},streamSettings:{network:"xhttp",xhttpSettings:{mode:"stream-one",path:$path}}}')
-  inbound_add xhttp-nginx "$ib"; state_add xhttp-nginx "$rec"; nginx_aggregate
+  systemctl daemon-reload || { manager_txn_rollback; return 1; }
+  local id path rec ib
+  id=$(new_uuid); path="/$(openssl rand -hex 12)/"
+  rec=$(jq -n --arg id "$id" --arg path "$path" '{uuid:$id,path:$path}') || { manager_txn_rollback; return 1; }
+  ib=$(jq -n --arg id "$id" --arg path "$path" --arg sock "$SOCKET" '{tag:"xhttp-nginx",listen:($sock+",0660"),protocol:"vless",settings:{clients:[{id:$id}],decryption:"none"},streamSettings:{network:"xhttp",xhttpSettings:{mode:"stream-one",path:$path}}}') || { manager_txn_rollback; return 1; }
+  if ! inbound_add xhttp-nginx "$ib" || ! state_add xhttp-nginx "$rec" || ! nginx_aggregate; then
+    manager_txn_rollback
+    echo "[ERROR] XHTTP-Nginx 安装失败，Xray、状态、Nginx 和 systemd drop-in 已尝试回滚" >&2
+    return 1
+  fi
+  manager_txn_commit
   echo "vless://$id@$DOMAIN:443?encryption=none&security=tls&type=xhttp&host=$DOMAIN&path=$(jq -rn --arg p "$path" '$p|@uri')&mode=stream-one#XHTTP-TLS-Nginx"
 }
 add_direct2(){
@@ -392,8 +437,24 @@ add_direct2(){
   fi
 }
 remove_v2(){
-  local t="$1"; has "$t" || die "$t 未安装"
-  inbound_del "$t"; state_del "$t"; nginx_aggregate
+  local t="$1"
+  has "$t" || die "$t 未安装"
+  manager_txn_snapshot
+  if ! inbound_del "$t" || ! state_del "$t" || ! nginx_aggregate; then
+    manager_txn_rollback
+    echo "[ERROR] $t 卸载失败，已尝试恢复原配置和其他 Nginx 路由" >&2
+    return 1
+  fi
+  if [[ "$t" == xhttp-nginx ]]; then
+    rm -f /etc/systemd/system/xray.service.d/dual-protocol.conf
+    systemctl daemon-reload
+    if ! systemctl restart xray || ! systemctl is-active --quiet xray; then
+      manager_txn_rollback
+      echo "[ERROR] XHTTP-Nginx 卸载后 Xray 服务异常，已尝试回滚" >&2
+      return 1
+    fi
+  fi
+  manager_txn_commit
   ok "$t 已卸载；其他入站保留"
 }
 show_v2(){

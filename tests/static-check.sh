@@ -21,8 +21,8 @@ grep -q 'REALITY dest 主机名（只填域名/IP，不含端口' "$SCRIPT"
 grep -Fq 'dest 端口 [443]' "$SCRIPT"
 # Exercise the parser against both documented Xray output formats.
 eval "$(sed -n '/^xray_output_field(){/,/^}/p' "$SCRIPT")"
-legacy_output=$(printf 'Private key: legacy-private\\nPublic key: legacy-public\\n')
-modern_output=$(printf 'PrivateKey: modern-private\\nPassword: modern-password\\nHash32: ignored-hash\\n')
+legacy_output=$(printf '%s\n' 'Private key: legacy-private' 'Public key: legacy-public')
+modern_output=$(printf '%s\n' 'PrivateKey: modern-private' 'Password: modern-password' 'Hash32: ignored-hash')
 [[ "$(xray_output_field privatekey <<<"$legacy_output")" == "legacy-private" ]]
 [[ "$(xray_output_field publickey <<<"$legacy_output")" == "legacy-public" ]]
 [[ "$(xray_output_field privatekey <<<"$modern_output")" == "modern-private" ]]

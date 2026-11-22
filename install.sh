@@ -182,8 +182,24 @@ inbound_health(){
     systemctl is-active --quiet nginx || return 1
   fi
 }
-state_add(){ local t="$1" r="$2" f; f=$(mktemp); jq --arg t "$t" --argjson r "$r" '.inbounds[$t]=$r' "$STATE_FILE" >"$f"; install -m 600 "$f" "$STATE_FILE"; rm -f "$f"; }
-state_del(){ local t="$1" f; f=$(mktemp); jq --arg t "$t" 'del(.inbounds[$t])' "$STATE_FILE" >"$f"; install -m 600 "$f" "$STATE_FILE"; rm -f "$f"; }
+state_add(){
+  local t="$1" r="$2" f
+  f=$(mktemp) || return 1
+  if ! jq --arg t "$t" --argjson r "$r" '.inbounds[$t]=$r' "$STATE_FILE" >"$f" || ! jq -e '.inbounds|type=="object"' "$f" >/dev/null; then
+    rm -f "$f"; return 1
+  fi
+  install -m 600 "$f" "$STATE_FILE" || { rm -f "$f"; return 1; }
+  rm -f "$f"
+}
+state_del(){
+  local t="$1" f
+  f=$(mktemp) || return 1
+  if ! jq --arg t "$t" 'del(.inbounds[$t])' "$STATE_FILE" >"$f" || ! jq -e '.inbounds|type=="object"' "$f" >/dev/null; then
+    rm -f "$f"; return 1
+  fi
+  install -m 600 "$f" "$STATE_FILE" || { rm -f "$f"; return 1; }
+  rm -f "$f"
+}
 make_saved_link(){
   local t="$1" id path port sni sid pbk domain ip encoded
   id=$(jq -r --arg t "$t" '.inbounds[$t].uuid // ""' "$STATE_FILE")
@@ -238,6 +254,9 @@ domain_tls(){
   fi
   mkdir -p "$WEBROOT" "$CERTDIR"
   if [[ ! -s "$CERT" || ! -s "$KEY" ]]; then
+    if has ws-nginx || has xhttp-nginx; then
+      die "检测到已登记的 Nginx 前置入站，但 TLS 证书缺失；为避免覆盖现有 WS/XHTTP 路由，停止自动签发。请先恢复证书或手动备份并修复 Nginx 配置"
+    fi
     cat >"$NGINX" <<EOF
 server {
  listen 80; listen [::]:80; server_name $DOMAIN; root $WEBROOT;

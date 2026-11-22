@@ -35,8 +35,8 @@ die(){ ui_error "$*"; exit 1; }
 ask_input(){
   local variable="$1" label="$2" explanation="$3" default="\${4-}" value
   printf '%s\n' "$explanation"
-  if [[ -n "$default" ]]; then printf '%s [%s]: ' "$label" "$default"
-  else printf '%s: ' "$label"; fi
+  if [[ -n "$default" ]]; then printf '%s [%s]: ' "$label" "$default" >&2
+  else printf '%s: ' "$label" >&2; fi
   IFS= read -r value
   printf -v "$variable" '%s' "\${value:-$default}"
 }

@@ -59,10 +59,10 @@
 
 第 1、7 项共用 Nginx 的 TCP/443，使用不同路径；其余五项使用独立 Xray 监听端口。所有 TLS 入站共用首次设置的域名和证书。默认端口仅作为建议值，脚本会检查端口占用。
 
-以 root 用户执行以下命令：
+当前七合一开发版位于 `feature/seven-inbound-modes` 分支。请使用下面这个分支专用下载地址；不要把 URL 中的分支改成 `main`，否则会下载到旧版 1.x。以 root 用户执行：
 
 ```bash
-wget -N -O install.sh "https://raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh" && chmod +x install.sh && bash install.sh
+wget -N -O install.sh "https://raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/feature/seven-inbound-modes/install.sh" && chmod +x install.sh && bash install.sh
 ```
 
 更新前请备份 `/usr/local/etc/xray/config.json`、`/etc/nginx`、`/ssl` 和 `/etc/xray-dual-protocol`。2.x 使用新的 JSON 状态登记文件；检测到 1.x 的 `dual-ws`/`dual-reality` 旧入站而没有新状态文件时，会拒绝继续，以免覆盖旧配置。1.x 到 2.x 尚不提供自动迁移，请先阅读 [迁移说明](docs/MIGRATION_v1_to_v2.md)。

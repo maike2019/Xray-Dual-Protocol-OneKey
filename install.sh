@@ -441,7 +441,13 @@ add_direct2(){
     ib=$(jq -n --arg id "$id" --argjson p "$p" --arg net "$net" --arg path "$path" --arg cert "$CERT" --arg key "$KEY" --arg flow "$flow" --arg tag "$tag" '{tag:$tag,listen:"0.0.0.0",port:$p,protocol:"vless",settings:{clients:([{id:$id}]|if $flow!="" then .[0].flow=$flow else . end),decryption:"none"},streamSettings:({network:$net,security:"tls",tlsSettings:({certificates:[{certificateFile:$cert,keyFile:$key}]}+(if $net=="xhttp" then {alpn:["h2"]} else {} end))}+(if $net=="xhttp" then {xhttpSettings:{mode:"auto",path:$path}} else {} end))}')
     rec=$(jq -n --arg id "$id" --arg path "$path" --argjson p "$p" '{uuid:$id,path:$path,port:$p}')
   fi
-  inbound_add "$tag" "$ib"; state_add "$tag" "$rec"
+  manager_txn_snapshot
+  if ! inbound_add "$tag" "$ib" || ! state_add "$tag" "$rec"; then
+    manager_txn_rollback
+    echo "[ERROR] $tag 安装失败，Xray 与状态文件已尝试回滚" >&2
+    return 1
+  fi
+  manager_txn_commit
   local ip; ip=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null||hostname -I|awk '{print $1}')
   if [[ "$sec" == reality && "$net" == xhttp ]]; then
     echo "vless://$id@$ip:$p?encryption=none&security=reality&sni=$sni&fp=chrome&pbk=$R_PUB&sid=$sid&type=xhttp&path=$(jq -rn --arg p "$path" '$p|@uri')&mode=auto#XHTTP-REALITY"

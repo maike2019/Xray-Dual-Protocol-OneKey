@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.1-dev] - 2026-11-22 — Nginx 端口识别与分支安装修复
+
+### Fixed
+- 移除七合一脚本中遗留的 v1.0.0 菜单与 WS 安装函数，避免执行旧版 TCP/80 端口检查。
+- 不再在依赖安装阶段无条件启动 Nginx；需要 ACME HTTP-01 时才检查并启动 Nginx。
+- TCP/80 已由 Nginx 监听时允许继续；若由其他进程占用则显示监听信息并安全退出，不结束任何进程。
+- TCP/443 检查区分 Nginx 与其他服务，避免误把 Nginx 自身视为冲突。
+- README 安装命令改为显式下载 `feature/seven-inbound-modes`，防止从 `main` 获取旧版脚本。
+
+### Validation
+- GitHub Actions Bash 语法检查及项目静态检查通过。
+- 尚未完成目标 VPS 的实际签发、Nginx 转发和客户端互通测试。
+
 ## [2.0.0-dev] - 2026-11-21 — 七种入站开发版
 
 ### Added

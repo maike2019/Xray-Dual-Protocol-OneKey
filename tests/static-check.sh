@@ -11,7 +11,7 @@ for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhtt
   grep -q "$tag" "$SCRIPT"
 done
 
-for needle in 'grpc_pass unix:' 'RuntimeDirectory=xray-dual' 'nginx_aggregate' '安装全部七种' 'show_install_status' 'install_summary' 'INSTALL_TEE_PID' 'refresh_saved_links' 'make_saved_link' 'inbound_health' 'ensure_nginx_http' 'xray_output_field privatekey' 'xray_output_field password' 'xray_output_field publickey'; do
+for needle in 'grpc_pass unix:' 'RuntimeDirectory=xray-dual' 'nginx_aggregate' '安装全部七种' 'show_install_status' 'install_summary' 'INSTALL_TEE_PID' 'refresh_saved_links' 'make_saved_link' 'inbound_health' 'ensure_nginx_http' 'xray_output_field privatekey' 'xray_output_field password' 'xray_output_field publickey' 'normalize_xray_config' 'geoip:private' 'bittorrent' 'metadataOnly' 'domainStrategy' '1.1.1.1'; do
   grep -Fq "$needle" "$SCRIPT"
 done
 
@@ -21,7 +21,7 @@ grep -q 'Xray 重启/运行检查失败，已恢复原配置' "$SCRIPT"
 grep -q '新 Nginx 配置测试失败，已恢复原项目配置' "$SCRIPT"
 grep -q 'Nginx 重载失败，已恢复原项目配置' "$SCRIPT"
 
-for entry in '1. 安装单项配置' '2. 按顺序安装全部七种' '3. 查看所有配置' '4. 修改已有配置' '5. 卸载单项配置' '6. 输出客户端链接' '7. 显示二维码' '8. 启动 / 停止 / 重启' '9. 查看运行日志' '10. 配置健康检查' '11. 证书状态与续期检查' '12. 备份配置' '13. 恢复配置'; do
+for entry in '1. 安装单项配置' '2. 按顺序安装全部七种' '3. 查看所有配置' '4. 修改已有配置' '5. 卸载单项配置' '6. 输出客户端链接' '7. 显示二维码' '8. 启动 / 停止 / 重启' '9. 查看运行日志' '10. 配置健康检查' '11. 证书状态与续期检查' '12. 备份配置' '13. 恢复配置' '14. 应用 DNS、流量嗅探与路由优化'; do
   grep -Fq "$entry" "$MANAGER"
 done
 

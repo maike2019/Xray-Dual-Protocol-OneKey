@@ -130,7 +130,6 @@ normalize_xray_config(){
     ) |
     .routing = (.routing // {}) |
     .routing.domainStrategy = "IPIfNonMatch" |
-    .routing.domainMatcher = "mph" |
     .routing.rules = (
       [
         {"type":"field","domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"},

@@ -78,10 +78,61 @@ xray_test(){
     runuser -u "$u" -g "$g" -- xray run -test -config "$CONF"
   fi
 }
+normalize_xray_config(){
+  jq '
+    .dns = {"servers":["1.1.1.1","8.8.8.8","localhost"]} |
+    .policy = {
+      "levels": {
+        "0": {
+          "handshake": 4,
+          "connIdle": 300,
+          "uplinkOnly": 2,
+          "downlinkOnly": 5,
+          "bufferSize": 10240
+        }
+      },
+      "system": {
+        "statsInboundUplink": false,
+        "statsInboundDownlink": false,
+        "statsOutboundUplink": false,
+        "statsOutboundDownlink": false
+      }
+    } |
+    .inbounds |= map(.sniffing //= {
+      "enabled": true,
+      "destOverride": ["http","tls","quic"],
+      "metadataOnly": false,
+      "routeOnly": false
+    }) |
+    .outbounds |= map(
+      if .tag == "direct" then
+        .settings = ((.settings // {}) + {"domainStrategy":"UseIP"})
+      else . end
+    ) |
+    .routing = (.routing // {}) |
+    .routing.domainStrategy = "IPIfNonMatch" |
+    .routing.rules = (
+      [
+        {"type":"field","ip":["geoip:private"],"outboundTag":"blocked"},
+        {"type":"field","protocol":["bittorrent"],"outboundTag":"blocked"}
+      ] +
+      ((.routing.rules // []) | map(select(
+        . != {"type":"field","ip":["geoip:private"],"outboundTag":"blocked"} and
+        . != {"type":"field","protocol":["bittorrent"],"outboundTag":"blocked"}
+      )))
+    )
+  ' "$1"
+}
 apply_config(){
   local t b stamp
   t=$(mktemp "$XRAY_DIR/config.XXXXXX")
   cat >"$t"
+  if ! normalize_xray_config "$t" >"$t.normalized"; then
+    rm -f "$t" "$t.normalized"
+    echo "[ERROR] Xray 配置优化合并失败，原配置未修改" >&2
+    return 1
+  fi
+  mv "$t.normalized" "$t"
   if ! jq empty "$t" >/dev/null 2>&1; then
     rm -f "$t"
     echo "[ERROR] 新生成的 Xray JSON 无效，原配置未修改" >&2

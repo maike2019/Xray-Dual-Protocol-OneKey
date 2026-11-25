@@ -38,9 +38,21 @@ grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
 ! grep -q 'raw.githubusercontent.com/maike2019/Xray-Dual-Protocol-OneKey/main/install.sh' "$ROOT/README.md"
 ! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
 
-echo "Static checks passed."
-
 grep -Fq '"sockopt": ((.streamSettings.sockopt // {}) + {"domainStrategy":"UseIP"})' "$SCRIPT"
 grep -Fq '"tag":"blocked-ads","protocol":"blackhole"' "$SCRIPT"
 grep -Fq '"domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"' "$SCRIPT"
 grep -Fq '"destOverride": ["http","tls","quic"]' "$SCRIPT"
+
+grep -Fq '"servers":["1.1.1.1","8.8.8.8","localhost"]' "$SCRIPT"
+grep -Fq '"handshake": 4' "$SCRIPT"
+grep -Fq '"connIdle": 300' "$SCRIPT"
+grep -Fq '"uplinkOnly": 2' "$SCRIPT"
+grep -Fq '"downlinkOnly": 5' "$SCRIPT"
+grep -Fq '"bufferSize": 10240' "$SCRIPT"
+grep -Fq '"statsInboundUplink": false' "$SCRIPT"
+grep -Fq '"statsOutboundDownlink": false' "$SCRIPT"
+grep -Fq '"metadataOnly": false' "$SCRIPT"
+grep -Fq '"routeOnly": false' "$SCRIPT"
+grep -Fq '广告域名（geosite:category-ads-all）' "$MANAGER"
+
+echo "Static checks passed."

@@ -291,8 +291,8 @@ menu_v2(){
   ui_title "========== 配置安装 =========="; ui_info "安装前请确认域名已解析，所需端口已在 VPS 防火墙和云安全组放行"; echo "1. 安装单项配置"; echo "2. 按顺序安装全部七种"
   echo; ui_title "========== 配置管理 =========="; echo "3. 查看所有配置"; echo "4. 修改已有配置"; echo "5. 卸载单项配置"; echo "6. 输出客户端链接"; echo "7. 显示二维码"
   echo; ui_title "========== 服务管理 =========="; echo "8. 启动 / 停止 / 重启"; echo "9. 查看运行日志"; echo "10. 配置健康检查"
-  echo; ui_title "========== Xray 高级优化 =========="; echo "14. 应用 DNS、流量嗅探与路由优化"
-  echo; ui_title "========== 证书与备份 =========="; echo "11. 证书状态与续期检查"; echo "12. 备份配置"; echo "13. 恢复配置"; echo; echo "0. 退出"
+  echo; ui_title "========== 证书与备份 =========="; echo "11. 证书状态与续期检查"; echo "12. 备份配置"; echo "13. 恢复配置"
+  echo; ui_title "========== Xray 高级优化 =========="; echo "14. 应用 DNS、流量嗅探与路由优化"; echo; echo "0. 退出"
   read -rp "请选择操作: " c
   case "$c" in 1) mgr_install;; 2) all_v2;; 3) mgr_list;; 4) mgr_modify;; 5) mgr_remove;; 6) mgr_links;; 7) mgr_qr;; 8) mgr_services;; 9) mgr_logs;; 10) mgr_health;; 11) mgr_cert;; 12) mgr_backup;; 13) mgr_restore;; 14) apply_runtime_optimizations;; 0) echo "退出管理菜单"; return 0;; *) echo "无效选项";; esac
   echo; read -rp "按回车返回主菜单..." _

@@ -98,7 +98,7 @@ normalize_xray_config(){
         "statsOutboundDownlink": false
       }
     } |
-    .inbounds |= map(.sniffing //= {
+    .inbounds |= map(.sniffing = {
       "enabled": true,
       "destOverride": ["http","tls","quic"],
       "metadataOnly": false,
@@ -106,19 +106,24 @@ normalize_xray_config(){
     }) |
     .outbounds |= map(
       if .tag == "direct" then
-        .streamSettings = ((.streamSettings // {}) + {
-          "sockopt": ((.streamSettings.sockopt // {}) + {"domainStrategy":"UseIP"})
-        })
+        .settings = ((.settings // {}) + {"domainStrategy":"UseIP"})
       else . end
+    ) |
+    .outbounds |= (
+      if any(.[]; .tag == "blocked-ads") then .
+      else . + [{"tag":"blocked-ads","protocol":"blackhole","settings":{}}]
+      end
     ) |
     .routing = (.routing // {}) |
     .routing.domainStrategy = "IPIfNonMatch" |
     .routing.rules = (
       [
+        {"type":"field","domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"},
         {"type":"field","ip":["geoip:private"],"outboundTag":"blocked"},
         {"type":"field","protocol":["bittorrent"],"outboundTag":"blocked"}
       ] +
       ((.routing.rules // []) | map(select(
+        . != {"type":"field","domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"} and
         . != {"type":"field","ip":["geoip:private"],"outboundTag":"blocked"} and
         . != {"type":"field","protocol":["bittorrent"],"outboundTag":"blocked"}
       )))

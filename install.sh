@@ -107,9 +107,8 @@ normalize_xray_config(){
     .outbounds = (.outbounds // []) |
     .outbounds |= map(
       if .tag == "direct" then
-        .streamSettings = ((.streamSettings // {}) + {
-          "sockopt": ((.streamSettings.sockopt // {}) + {"domainStrategy":"UseIP"})
-        })
+        .protocol = "freedom" |
+        .settings = ((.settings // {}) + {"domainStrategy":"UseIP"})
       elif .tag == "blocked" then
         .protocol = "blackhole" |
         .settings = ((.settings // {}) | .response = ((.response // {}) + {"type":"none"}))

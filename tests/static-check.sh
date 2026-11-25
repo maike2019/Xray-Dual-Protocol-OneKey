@@ -11,7 +11,7 @@ for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhtt
   grep -q "$tag" "$SCRIPT"
 done
 
-for needle in 'grpc_pass unix:' 'RuntimeDirectory=xray-dual' 'nginx_aggregate' '安装全部七种' 'show_install_status' 'install_summary' 'INSTALL_TEE_PID' 'refresh_saved_links' 'make_saved_link' 'inbound_health' 'ensure_nginx_http' 'xray_output_field privatekey' 'xray_output_field password' 'xray_output_field publickey' 'normalize_xray_config' 'geoip:private' 'bittorrent' 'metadataOnly' 'domainStrategy' 'sockopt' 'domainStrategy' 'blocked-ads' 'category-ads-all' '1.1.1.1'; do
+for needle in 'grpc_pass unix:' 'RuntimeDirectory=xray-dual' 'nginx_aggregate' '安装全部七种' 'show_install_status' 'install_summary' 'INSTALL_TEE_PID' 'refresh_saved_links' 'make_saved_link' 'inbound_health' 'ensure_nginx_http' 'xray_output_field privatekey' 'xray_output_field password' 'xray_output_field publickey' 'normalize_xray_config' 'geoip:private' 'bittorrent' 'metadataOnly' 'domainStrategy' 'sockopt' 'domainStrategy' 'blocked-ads' 'category-ads-all' '"type":"none"' '"type":"http"' 'domainMatcher = "mph"' '1.1.1.1'; do
   grep -Fq "$needle" "$SCRIPT"
 done
 
@@ -39,7 +39,11 @@ grep -q 'feature/seven-inbound-modes/install.sh' "$ROOT/README.md"
 ! grep -Eq 'kill[[:space:]]+-9|killall|pkill' "$SCRIPT"
 
 grep -Fq '"sockopt": ((.streamSettings.sockopt // {}) + {"domainStrategy":"UseIP"})' "$SCRIPT"
-grep -Fq '"tag":"blocked-ads","protocol":"blackhole"' "$SCRIPT"
+grep -Fq '"tag":"blocked","protocol":"blackhole","settings":{"response":{"type":"none"}}' "$SCRIPT"
+grep -Fq '"tag":"blocked-ads","protocol":"blackhole","settings":{"response":{"type":"http"}}' "$SCRIPT"
+grep -Fq '.response = ((.response // {}) + {"type":"none"})' "$SCRIPT"
+grep -Fq '.response = ((.response // {}) + {"type":"http"})' "$SCRIPT"
+grep -Fq '.routing.domainMatcher = "mph"' "$SCRIPT"
 grep -Fq '"domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"' "$SCRIPT"
 grep -Fq '"destOverride": ["http","tls","quic"]' "$SCRIPT"
 

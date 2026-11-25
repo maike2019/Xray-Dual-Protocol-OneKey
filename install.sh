@@ -104,20 +104,33 @@ normalize_xray_config(){
       "metadataOnly": false,
       "routeOnly": false
     }) |
+    .outbounds = (.outbounds // []) |
     .outbounds |= map(
       if .tag == "direct" then
         .streamSettings = ((.streamSettings // {}) + {
           "sockopt": ((.streamSettings.sockopt // {}) + {"domainStrategy":"UseIP"})
         })
+      elif .tag == "blocked" then
+        .protocol = "blackhole" |
+        .settings = ((.settings // {}) | .response = ((.response // {}) + {"type":"none"}))
+      elif .tag == "blocked-ads" then
+        .protocol = "blackhole" |
+        .settings = ((.settings // {}) | .response = ((.response // {}) + {"type":"http"}))
       else . end
     ) |
     .outbounds |= (
+      if any(.[]; .tag == "blocked") then .
+      else . + [{"tag":"blocked","protocol":"blackhole","settings":{"response":{"type":"none"}}}]
+      end
+    ) |
+    .outbounds |= (
       if any(.[]; .tag == "blocked-ads") then .
-      else . + [{"tag":"blocked-ads","protocol":"blackhole","settings":{}}]
+      else . + [{"tag":"blocked-ads","protocol":"blackhole","settings":{"response":{"type":"http"}}}]
       end
     ) |
     .routing = (.routing // {}) |
     .routing.domainStrategy = "IPIfNonMatch" |
+    .routing.domainMatcher = "mph" |
     .routing.rules = (
       [
         {"type":"field","domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"},

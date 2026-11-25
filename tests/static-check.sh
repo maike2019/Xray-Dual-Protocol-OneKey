@@ -11,7 +11,7 @@ for tag in ws-nginx tcp-reality-vision tcp-tls-vision tcp-tls xhttp-reality xhtt
   grep -q "$tag" "$SCRIPT"
 done
 
-for needle in 'grpc_pass unix:' 'RuntimeDirectory=xray-dual' 'nginx_aggregate' '安装全部七种' 'show_install_status' 'install_summary' 'INSTALL_TEE_PID' 'refresh_saved_links' 'make_saved_link' 'inbound_health' 'ensure_nginx_http' 'xray_output_field privatekey' 'xray_output_field password' 'xray_output_field publickey' 'normalize_xray_config' 'geoip:private' 'bittorrent' 'metadataOnly' 'domainStrategy' '1.1.1.1'; do
+for needle in 'grpc_pass unix:' 'RuntimeDirectory=xray-dual' 'nginx_aggregate' '安装全部七种' 'show_install_status' 'install_summary' 'INSTALL_TEE_PID' 'refresh_saved_links' 'make_saved_link' 'inbound_health' 'ensure_nginx_http' 'xray_output_field privatekey' 'xray_output_field password' 'xray_output_field publickey' 'normalize_xray_config' 'geoip:private' 'bittorrent' 'metadataOnly' 'domainStrategy' 'sockopt' '1.1.1.1'; do
   grep -Fq "$needle" "$SCRIPT"
 done
 

@@ -273,7 +273,7 @@ apply_runtime_optimizations(){
  [[ -s "$CONF" ]] || { ui_error "Xray 配置文件不存在"; return 1; }
  ui_title "========== 应用 Xray DNS 与路由优化 =========="
  ui_info "将为现有入站补充流量嗅探，并设置 DNS、连接策略、直连解析和安全路由规则。"
- ui_warn "私有 IP 与 BitTorrent 流量将被 blocked 出站拦截；这可能影响你有意访问内网地址或使用 BT 的场景。"
+ ui_warn "广告域名（geosite:category-ads-all）、私有 IP 与可识别的 BitTorrent 流量将被拦截；这可能影响广告域名访问、内网地址访问或 BT 使用。"
  ui_warn "bufferSize=10240 表示每个请求缓冲上限 10 MiB，并非整台 VPS 的总缓存上限。"
  read -rp "确认备份当前配置、校验并重启 Xray 应用这些设置？[y/N] " confirm
  [[ "$confirm" == [yY] ]] || { ui_info "已取消，当前服务未修改"; return 0; }

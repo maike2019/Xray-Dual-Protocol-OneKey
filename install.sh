@@ -106,7 +106,9 @@ normalize_xray_config(){
     }) |
     .outbounds |= map(
       if .tag == "direct" then
-        .settings = ((.settings // {}) + {"domainStrategy":"UseIP"})
+        .streamSettings = ((.streamSettings // {}) + {
+          "sockopt": ((.streamSettings.sockopt // {}) + {"domainStrategy":"UseIP"})
+        })
       else . end
     ) |
     .routing = (.routing // {}) |

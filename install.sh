@@ -2,7 +2,7 @@
 # Derived from wulabing/Xray_onekey; MIT License.
 set -Eeuo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-PROJECT_VERSION=2.1.0-dev
+PROJECT_VERSION=2.1.1-dev
 XRAY_DIR=/usr/local/etc/xray
 CONF=$XRAY_DIR/config.json
 NGINX=/etc/nginx/conf.d/xray-dual.conf
@@ -80,7 +80,7 @@ xray_test(){
 }
 normalize_xray_config(){
   jq '
-    .dns = {"servers":["1.1.1.1","8.8.8.8","localhost"]} |
+    .dns = {"tag":"dns-out","servers":["1.1.1.1","8.8.8.8","9.9.9.11","localhost"],"queryStrategy":"UseIP"} |
     .policy = {
       "levels": {
         "0": {
@@ -108,7 +108,8 @@ normalize_xray_config(){
     .outbounds |= map(
       if .tag == "direct" then
         .protocol = "freedom" |
-        .settings = ((.settings // {}) + {"domainStrategy":"UseIP"})
+        .settings = (.settings // {}) |
+        .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {"domainStrategy":"UseIP"}))
       elif .tag == "blocked" then
         .protocol = "blackhole" |
         .settings = ((.settings // {}) | .response = ((.response // {}) + {"type":"none"}))
@@ -131,6 +132,7 @@ normalize_xray_config(){
     .routing.domainStrategy = "IPIfNonMatch" |
     .routing.rules = (
       [
+        {"type":"field","inboundTag":["dns-out"],"outboundTag":"direct"},
         {"type":"field","domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"},
         {"type":"field","ip":["geoip:private"],"outboundTag":"blocked"},
         {"type":"field","protocol":["bittorrent"],"outboundTag":"blocked"}
@@ -177,8 +179,7 @@ apply_config(){
     secure_xray_config || true
     xray_test >/dev/null 2>&1 || true
     systemctl restart xray >/dev/null 2>&1 || true
-    echo "[ERROR] Xray 重启/运行检查失败，已恢复原配置并尝试恢复旧服务（备份：$b）" >&2
-    return 1
+    echo "[ERROR] Xray 重启/运行检查失败，已恢复原配置并尝试恢复旧服务（备份：$b）" >&2    return 1
   fi
 }
 install_deps(){
@@ -357,8 +358,7 @@ make_saved_link(){
   domain=$(jq -r '.domain // ""' "$STATE_FILE")
   encoded=$(jq -rn --arg p "$path" '$p|@uri')
   case "$t" in
-    ws-nginx)
-      printf 'vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s#WS-TLS-Nginx\n' "$id" "$domain" "$domain" "$encoded";;
+    ws-nginx)      printf 'vless://%s@%s:443?encryption=none&security=tls&type=ws&host=%s&path=%s#WS-TLS-Nginx\n' "$id" "$domain" "$domain" "$encoded";;
     tcp-reality-vision)
       ip=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
       printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp#TCP-REALITY-Vision\n' "$id" "$ip" "$port" "$sni" "$pbk" "$sid";;
@@ -537,8 +537,7 @@ add_xhttp_nginx2(){
   has xhttp-nginx && die "XHTTP-Nginx 已安装"
   check_443
   domain_tls
-  check_443
-  manager_txn_snapshot
+  check_443  manager_txn_snapshot
   mkdir -p /etc/systemd/system/xray.service.d
   cat >/etc/systemd/system/xray.service.d/dual-protocol.conf <<'UNIT'
 [Service]
@@ -717,8 +716,7 @@ install_one(){
   INSTALL_CURRENT="$label"
   if has "$tag"; then
     if jq -e --arg t "$tag" '.inbounds[]? | select(.tag==$t)' "$CONF" >/dev/null 2>&1; then
-      inbound_health "$tag" || die "$label：配置记录存在，但 Xray/Nginx 服务未通过运行状态检查；请先排查服务，不会重复安装"
-      echo "[跳过] $label：Xray 入站和所需服务均正常"
+      inbound_health "$tag" || die "$label：配置记录存在，但 Xray/Nginx 服务未通过运行状态检查；请先排查服务，不会重复安装"      echo "[跳过] $label：Xray 入站和所需服务均正常"
       INSTALL_CURRENT=""
       return 0
     fi
@@ -823,4 +821,3 @@ curl -fsSL --retry 3 "https://raw.githubusercontent.com/maike2019/Xray-Dual-Prot
 chmod 600 "$MANAGEMENT_LIB"
 source "$MANAGEMENT_LIB"
 menu_v2
-

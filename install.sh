@@ -138,6 +138,7 @@ normalize_xray_config(){
         {"type":"field","protocol":["bittorrent"],"outboundTag":"blocked"}
       ] +
       ((.routing.rules // []) | map(select(
+        . != {"type":"field","inboundTag":["dns-out"],"outboundTag":"direct"} and
         . != {"type":"field","domain":["geosite:category-ads-all"],"outboundTag":"blocked-ads"} and
         . != {"type":"field","ip":["geoip:private"],"outboundTag":"blocked"} and
         . != {"type":"field","protocol":["bittorrent"],"outboundTag":"blocked"}

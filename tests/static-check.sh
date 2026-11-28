@@ -48,6 +48,7 @@ grep -Fq '"destOverride": ["http","tls","quic"]' "$SCRIPT"
 
 grep -Fq '"tag":"dns-out","servers":["1.1.1.1","8.8.8.8","9.9.9.11","localhost"],"queryStrategy":"UseIP"' "$SCRIPT"
 grep -Fq '{"type":"field","inboundTag":["dns-out"],"outboundTag":"direct"}' "$SCRIPT"
+grep -Fq '. != {"type":"field","inboundTag":["dns-out"],"outboundTag":"direct"} and' "$SCRIPT"
 grep -Fq '"handshake": 4' "$SCRIPT"
 grep -Fq '"connIdle": 300' "$SCRIPT"
 grep -Fq '"uplinkOnly": 2' "$SCRIPT"

@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.1-dev] - 2026-11-28 — 统一应用最终确认的 DNS、策略与路由配置
+
+### Fixed
+- DNS 统一设置为 `1.1.1.1`、`8.8.8.8`、`9.9.9.11`、`localhost`，启用 `UseIP` 并添加 `dns-out` 标签。
+- DNS 查询路由规则置于规则列表首位，明确通过 `direct` 出站。
+- Freedom 的 `domainStrategy: UseIP` 移至 `streamSettings.sockopt`，不再错误写入 `settings`。
+- 保留 `handshake=4`、`bufferSize=10240`、广告黑洞 `response=http`、普通黑洞 `response=none`。
+- 保留所有入站嗅探、广告域名、私有 IP 与 BitTorrent 规则；REALITY 私钥、UUID、Short ID 仍由安装流程动态生成，不写入仓库。
+
+### Validation
+- 更新静态检查以核对 DNS 标签、DNS 直连规则、DNS 服务器列表及 Freedom Sockopt 层级。
+- GitHub Actions 静态检查需在提交后重新执行；真实 Xray 配置加载和客户端互通仍需 VPS 实测。
+
 ## [2.1.0-dev] - 2026-11-22 — 交互式管理面板与运维功能
 
 ### Added
